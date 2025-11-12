@@ -1,0 +1,24 @@
+# Policy rules configuration
+rules:
+  - name: heuristic_block
+    condition: heuristic_blocked == True
+    action: block
+    reason: "Heuristic detection blocked"
+  
+  - name: pii_threshold
+    condition: pii_score > 0.8
+    action: block
+    reason: "High PII score detected"
+  
+  - name: toxicity_threshold
+    condition: toxicity_score > 0.7
+    action: block
+    reason: "High toxicity score detected"
+  
+  - name: max_length
+    condition: features.length > 4000
+    action: block
+    reason: "Prompt too long"
+
+default_action: allow
+

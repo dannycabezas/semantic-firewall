@@ -1,3 +1,30 @@
 max_prompt_chars: 4000
 block_on_match: true
 log_samples: true
+
+# Preprocessor configuration
+vectorizer:
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+
+# Qdrant configuration
+qdrant:
+  url: "http://localhost:6333"
+  collection_name: "firewall_vectors"
+  enabled: false  # Set to true to enable Qdrant
+
+# ML models configuration
+ml:
+  pii_model: null  # Path to ONNX PII model (optional)
+  toxicity_model: null  # Path to ONNX toxicity model (optional)
+
+# Heuristic detector configuration
+heuristic:
+  rules_path: "rules/prompt_injection_rules.yaml"
+
+# Policy engine configuration
+policy:
+  policies_path: "policy_engine/policies.yaml"
+
+# Logging configuration
+logging:
+  type: "print"  # Options: "print" or "structlog"
