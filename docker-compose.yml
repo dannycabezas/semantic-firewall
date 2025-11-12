@@ -1,0 +1,28 @@
+version: "3.9"
+services:
+  frontend:
+    build: ./frontend
+    container_name: spg_frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE=http://localhost:8080
+    depends_on:
+      - firewall
+
+  backend:
+    build: ./backend
+    container_name: spg_backend
+    ports:
+      - "8000:8000"
+
+  firewall:
+    build: ./firewall
+    container_name: spg_firewall
+    ports:
+      - "8080:8080"
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - LOG_LEVEL=info
+    depends_on:
+      - backend

@@ -1,0 +1,14 @@
+patterns:
+  # Basic jailbreak/injection cues (expand as needed)
+  - "ignore all (previous|prior) rules"
+  - "disregard (all )?instructions"
+  - "you are now DAN"
+  - "bypass (safety|guardrails)"
+  - "reveal your (system|hidden) prompt"
+  - "exfiltrate|leak (data|secrets)"
+
+# Exact term denylist (case-insensitive contains)
+denylist:
+  - "api_key="
+  - "BEGIN PRIVATE"
+  - "CONFIDENTIAL"
