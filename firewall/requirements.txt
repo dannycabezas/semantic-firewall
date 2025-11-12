@@ -7,3 +7,4 @@ sentence-transformers==5.1.2
 onnxruntime==1.23.2
 qdrant-client==1.15.1
 structlog==25.5.0
+debugpy==1.8.17

@@ -10,6 +10,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from container import FirewallContainer
+import logging
+
+# Debug configuration
+DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
+if DEBUG_MODE:
+    import debugpy
+    debugpy.listen(("0.0.0.0", 5678))
+    print("🐛 Debugger attached on port 5678. Waiting for debugger to connect...")
+    # Opcional: esperar a que se conecte el debugger
+    # debugpy.wait_for_client()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
@@ -55,6 +68,7 @@ async def proxy_chat(payload: ChatIn):
     4. Action Orchestrator (log, alert, etc.)
     5. Decision: block or allow (proxy to backend)
     """
+    logger.info(f"Received chat request: {payload.message}")
     start = time.time()
     request_id = generate_request_id()
     
@@ -67,17 +81,17 @@ async def proxy_chat(payload: ChatIn):
     try:
         # 1. Preprocess
         preprocessed = preprocessor.preprocess(payload.message, store=False)
-        
+        logger.info(f"Preprocessed message: {preprocessed.normalized_text}")
         # 2. Fast ML Filter
         ml_signals = ml_filter.analyze(preprocessed.normalized_text)
-        
+        logger.info(f"ML signals: {ml_signals}")
         # 3. Policy Engine
         decision = policy_engine.evaluate(
             ml_signals=ml_signals,
             features=preprocessed.features,
             tenant_id="default"  # Can be extracted from request headers
         )
-        
+        logger.info(f"Decision: {decision}")
         # 4. Action Orchestrator
         orchestrator.execute(
             decision=decision,
@@ -88,21 +102,25 @@ async def proxy_chat(payload: ChatIn):
                 "latency_ms": ml_signals.latency_ms
             }
         )
-        
+        logger.info(f"Orchestrator executed")
         # 5. Decision: block or allow
         if decision.blocked:
+            logger.info(f"Decision is blocked: {decision.reason}")
             return {"blocked": True, "reason": decision.reason}
-        
         # Allow: proxy to backend
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
+                logger.info(f"Proxying to backend: {BACKEND_URL}")
                 r = await client.post(
                     f"{BACKEND_URL}/api/chat",
                     json={"message": payload.message}
                 )
+                logger.info(f"Backend response: {r.status_code}")
                 r.raise_for_status()
+                logger.info(f"Backend response: {r.json()}")
                 data = r.json()
             except Exception as e:
+                logger.error(f"Backend error: {e}")
                 orchestrator.logger.log(
                     "error",
                     f"Backend error: {e}",
@@ -113,16 +131,20 @@ async def proxy_chat(payload: ChatIn):
         # Optional: analyze outbound content (egress filter)
         reply = (data or {}).get("reply", "")
         if reply:
+            logger.info(f"Analyzing outbound content: {reply}")
             # Preprocess reply
             reply_preprocessed = preprocessor.preprocess(reply, store=False)
+            logger.info(f"Reply preprocessed: {reply_preprocessed.normalized_text}")
             reply_ml_signals = ml_filter.analyze(reply_preprocessed.normalized_text)
+            logger.info(f"Reply ML signals: {reply_ml_signals}")
             reply_decision = policy_engine.evaluate(
                 ml_signals=reply_ml_signals,
                 features=reply_preprocessed.features,
                 tenant_id="default"
             )
-            
+            logger.info(f"Reply decision: {reply_decision}")
             if reply_decision.blocked:
+                logger.info(f"Reply decision is blocked: {reply_decision.reason}")
                 orchestrator.execute(
                     decision=reply_decision,
                     request_id=f"{request_id}_egress",
@@ -131,6 +153,7 @@ async def proxy_chat(payload: ChatIn):
                         "direction": "egress"
                     }
                 )
+                logger.info(f"Orchestrator executed")
                 return {"blocked": True, "reason": reply_decision.reason}
         
         dt = (time.time() - start) * 1000
@@ -141,6 +164,7 @@ async def proxy_chat(payload: ChatIn):
             latency_ms=dt
         )
         
+        logger.info(f"Request allowed - latency: {dt:.1f}ms")
         return data
         
     except Exception as e:
@@ -151,4 +175,5 @@ async def proxy_chat(payload: ChatIn):
             request_id=request_id,
             error=str(e)
         )
+        logger.error(f"Firewall error: {e}")
         return {"blocked": True, "reason": "Internal firewall error."}
