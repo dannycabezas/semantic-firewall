@@ -1,7 +1,7 @@
 """Port for alerting."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 class IAlerter(ABC):
@@ -11,14 +11,13 @@ class IAlerter(ABC):
     def alert(self, severity: str, message: str, context: Dict[str, Any] = None) -> bool:
         """
         Send an alert.
-        
+
         Args:
             severity: Alert severity (low, medium, high, critical)
             message: Alert message
             context: Additional context
-            
+
         Returns:
             True if alert was sent successfully
         """
         pass
-

@@ -1,7 +1,7 @@
 """Port for tenant context provider."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 
 class ITenantContextProvider(ABC):
@@ -11,12 +11,11 @@ class ITenantContextProvider(ABC):
     def get_context(self, tenant_id: str) -> Dict[str, Any]:
         """
         Get context for a tenant.
-        
+
         Args:
             tenant_id: Tenant identifier
-            
+
         Returns:
             Dictionary with tenant context (policies, settings, etc.)
         """
         pass
-

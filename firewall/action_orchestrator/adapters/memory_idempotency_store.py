@@ -1,6 +1,7 @@
 """Memory-based idempotency store adapter (mock for POC)."""
 
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from action_orchestrator.ports.idempotency_store_port import IIdempotencyStore
 
 
@@ -14,10 +15,10 @@ class MemoryIdempotencyStore(IIdempotencyStore):
     def get(self, request_id: str) -> Optional[Dict[str, Any]]:
         """
         Get stored result for a request ID.
-        
+
         Args:
             request_id: Unique request identifier
-            
+
         Returns:
             Stored result or None if not found
         """
@@ -26,11 +27,11 @@ class MemoryIdempotencyStore(IIdempotencyStore):
     def store(self, request_id: str, result: Dict[str, Any]) -> bool:
         """
         Store result for a request ID.
-        
+
         Args:
             request_id: Unique request identifier
             result: Result to store
-            
+
         Returns:
             True if successful
         """
@@ -39,4 +40,3 @@ class MemoryIdempotencyStore(IIdempotencyStore):
             return True
         except Exception:
             return False
-

@@ -208,3 +208,7 @@ __marimo__/
 
 # mac osx
 .DS_Store
+
+# Modelos ONNX (pueden ser grandes)
+firewall/models/*.onnx
+!firewall/models/.gitkeep

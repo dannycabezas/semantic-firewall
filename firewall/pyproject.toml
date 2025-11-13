@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "semantic-firewall"
+version = "0.1.0"
+description = "This is a POC for the semantic firewall"
+authors = [
+  { name="Danny Cabezas", email="dannycabezas27@gmail.com" },
+]
+requires-python = ">=3.11"
+# dependencies = [ # TODO: Populate from requirements.txt if needed
+# ]
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+# For a full list of rules, see: https://docs.astral.sh/ruff/rules/
+# For a list of common rule selections, see: https://docs.astral.sh/ruff/configuration/#selecting-rules
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # Pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear (opinionated but generally useful)
+    "A",  # flake8-builtins (shadowing builtins)
+    "ANN", # flake8-annotations (enforce type hints)
+    "RUF", # Ruff-specific rules
+    "C90", # McCabe complexity
+    "D",   # pydocstyle (docstring conventions)
+]
+ignore = [
+    "ANN401", # Dynamically typed expressions (Any) are disallowed in type annotations
+    # pydocstyle ignores for compatibility with black and common preferences:
+    "D100", 
+    "D101", 
+    "D102", 
+    "D103",
+    "D104",
+    "D105",
+    "D107",   # Missing docstring
+    "D203",   # One blank line required before class docstring (conflicts with black)
+    "D212",   # Multi-line docstring summary should start at the first line (alternative to D213, often preferred)
+    "D213",   # Multi-line docstring summary should start at the second line (conflicts with D212)
+    "D400",   # First line should end with a period (can be too noisy)
+    "D404",   # First word of the docstring should be "This" or "Return" if it is a function (too restrictive)
+    "D415",   # First line should end with a period, question mark, or exclamation point (covered by D400 if enabled)
+    
+]
+
+# Configure pydocstyle for Google docstrings as per project rules
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# Configure McCabe complexity
+[tool.ruff.lint.mccabe]
+max-complexity = 10 # A common starting point, adjust as needed
+
+# Example of how to extend select/ignore for specific files if needed:
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN", "D", "D100", "D101", "D102", "D103"] # e.g., less strict about annotations or docstrings in tests 
+

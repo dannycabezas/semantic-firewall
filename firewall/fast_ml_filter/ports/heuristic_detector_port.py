@@ -1,7 +1,7 @@
 """Port for heuristic detection."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 class IHeuristicDetector(ABC):
@@ -11,10 +11,10 @@ class IHeuristicDetector(ABC):
     def detect(self, text: str) -> Dict[str, Any]:
         """
         Detect issues using heuristics.
-        
+
         Args:
             text: Text to analyze
-            
+
         Returns:
             Dictionary with detection results:
             - blocked: bool
@@ -22,4 +22,3 @@ class IHeuristicDetector(ABC):
             - reason: str (if blocked)
         """
         pass
-

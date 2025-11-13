@@ -10,12 +10,14 @@ vectorizer:
 qdrant:
   url: "http://localhost:6333"
   collection_name: "firewall_vectors"
-  enabled: false  # Set to true to enable Qdrant
+  enabled: false
 
 # ML models configuration
 ml:
-  pii_model: null  # Path to ONNX PII model (optional)
-  toxicity_model: null  # Path to ONNX toxicity model (optional)
+  pii_model: "models/pii_model.onnx"  # Path relativo desde /app en el contenedor
+  toxicity_model: "models/toxicity_model.onnx"
+  # Opcional: paths para tokenizers
+  toxicity_tokenizer: "unitary/toxic-bert"  # O path local
 
 # Heuristic detector configuration
 heuristic:
@@ -27,4 +29,4 @@ policy:
 
 # Logging configuration
 logging:
-  type: "print"  # Options: "print" or "structlog"
+  type: "print"

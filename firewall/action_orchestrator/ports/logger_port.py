@@ -1,7 +1,7 @@
 """Port for logging."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 class ILogger(ABC):
@@ -11,7 +11,7 @@ class ILogger(ABC):
     def log(self, level: str, message: str, **kwargs) -> None:
         """
         Log a message.
-        
+
         Args:
             level: Log level (info, warning, error, debug)
             message: Log message
@@ -23,9 +23,8 @@ class ILogger(ABC):
     def log_structured(self, data: Dict[str, Any]) -> None:
         """
         Log structured data.
-        
+
         Args:
             data: Dictionary of structured data
         """
         pass
-

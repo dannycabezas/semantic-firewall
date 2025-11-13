@@ -8,3 +8,15 @@ onnxruntime==1.23.2
 qdrant-client==1.15.1
 structlog==25.5.0
 debugpy==1.8.17
+transformers==4.57.1
+torch==2.9.0
+scipy==1.16.3
+onnxscript==0.5.6
+pydantic==2.12.4
+pydantic-settings==2.12.0
+presidio-analyzer==2.2.360
+
+# dev dependencies
+ruff==0.14.4
+black==25.11.0
+isort==7.0.0

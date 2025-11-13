@@ -11,12 +11,11 @@ class IVectorizer(ABC):
     def vectorize(self, text: str) -> List[float]:
         """
         Convert text to embedding vector.
-        
+
         Args:
             text: Normalized text input
-            
+
         Returns:
             Embedding vector as list of floats
         """
         pass
-

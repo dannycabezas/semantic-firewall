@@ -1,7 +1,7 @@
 """Port for policy loading."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 class IPolicyLoader(ABC):
@@ -11,9 +11,8 @@ class IPolicyLoader(ABC):
     def load(self) -> Dict[str, Any]:
         """
         Load policies from source.
-        
+
         Returns:
             Dictionary of policy rules
         """
         pass
-

@@ -10,12 +10,11 @@ class INormalizer(ABC):
     def normalize(self, text: str) -> str:
         """
         Normalize text.
-        
+
         Args:
             text: Raw text input
-            
+
         Returns:
             Normalized text
         """
         pass
-

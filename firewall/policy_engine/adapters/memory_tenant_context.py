@@ -1,6 +1,7 @@
 """Memory-based tenant context provider adapter (mock for POC)."""
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 from policy_engine.ports.tenant_context_port import ITenantContextProvider
 
 
@@ -21,12 +22,11 @@ class MemoryTenantContext(ITenantContextProvider):
     def get_context(self, tenant_id: str) -> Dict[str, Any]:
         """
         Get context for a tenant.
-        
+
         Args:
             tenant_id: Tenant identifier
-            
+
         Returns:
             Dictionary with tenant context
         """
         return self._contexts.get(tenant_id, self._contexts["default"])
-

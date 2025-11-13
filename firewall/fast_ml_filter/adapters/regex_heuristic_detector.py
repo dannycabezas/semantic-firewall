@@ -1,9 +1,11 @@
 """Regex-based heuristic detector adapter (uses existing rules)."""
 
-import re
-import yaml
 import os
-from typing import Dict, Any
+import re
+from typing import Any, Dict
+
+import yaml
+
 from fast_ml_filter.ports.heuristic_detector_port import IHeuristicDetector
 
 
@@ -13,7 +15,7 @@ class RegexHeuristicDetector(IHeuristicDetector):
     def __init__(self, rules_path: str = "rules/prompt_injection_rules.yaml"):
         """
         Initialize heuristic detector with rules.
-        
+
         Args:
             rules_path: Path to rules YAML file
         """
@@ -39,17 +41,17 @@ class RegexHeuristicDetector(IHeuristicDetector):
     def detect(self, text: str) -> Dict[str, Any]:
         """
         Detect issues using heuristics.
-        
+
         Args:
             text: Text to analyze
-            
+
         Returns:
             Dictionary with detection results
         """
         flags = []
         blocked = False
         reason = None
-        
+
         # Check patterns
         for pattern in self.patterns:
             if pattern.search(text):
@@ -57,7 +59,7 @@ class RegexHeuristicDetector(IHeuristicDetector):
                 blocked = True
                 reason = f"Pattern match: {pattern.pattern}"
                 break
-        
+
         # Check denylist
         if not blocked:
             text_lower = text.lower()
@@ -67,10 +69,5 @@ class RegexHeuristicDetector(IHeuristicDetector):
                     blocked = True
                     reason = f"Contains denylisted token: {needle}"
                     break
-        
-        return {
-            "blocked": blocked,
-            "flags": flags,
-            "reason": reason
-        }
 
+        return {"blocked": blocked, "flags": flags, "reason": reason}
