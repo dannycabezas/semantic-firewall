@@ -18,10 +18,10 @@ from fast_ml_filter.adapters.regex_heuristic_detector import RegexHeuristicDetec
 from fast_ml_filter.ml_filter_service import MLFilterService
 from fast_ml_filter.adapters.deberta_prompt_injection_detector import DeBERTaPromptInjectionDetector
 from policy_engine.adapters.memory_tenant_context import MemoryTenantContext
-from policy_engine.adapters.simple_policy_evaluator import SimplePolicyEvaluator
+from policy_engine.adapters.opa_evaluator import OPAEvaluator
 
 # Policy Engine
-from policy_engine.adapters.yaml_policy_loader import YAMLPolicyLoader
+from policy_engine.adapters.rego_policy_loader import RegoPolicyLoader
 from policy_engine.policy_service import PolicyService
 from preprocessor.adapters.basic_feature_extractor import BasicFeatureExtractor
 from preprocessor.adapters.memory_feature_store import MemoryFeatureStore
@@ -86,11 +86,15 @@ class FirewallContainer(containers.DeclarativeContainer):
     )
 
     # Policy Engine Adapters
-    policy_loader = providers.Factory(YAMLPolicyLoader, policies_path=config.provided.policy.policies_path)
+    policy_loader = providers.Factory(RegoPolicyLoader, policies_path=config.provided.policy.policies_path)
 
     tenant_context_provider = providers.Singleton(MemoryTenantContext)
 
-    policy_evaluator = providers.Factory(SimplePolicyEvaluator)
+    policy_evaluator = providers.Factory(
+        OPAEvaluator,
+        opa_url=config.provided.policy.opa_url,
+        opa_policy_name=config.provided.policy.opa_policy_name,
+    )
 
     # Policy Engine Service
     policy_service = providers.Factory(

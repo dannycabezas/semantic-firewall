@@ -57,7 +57,9 @@ class PolicyConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="FIREWALL_POLICY_", case_sensitive=False)
 
-    policies_path: str = "policy_engine/policies.yaml"
+    policies_path: str = "policy_engine/policies.rego"
+    opa_url: str = "http://localhost:8181"
+    opa_policy_name: str = "firewall/policy"
 
 
 class LoggingConfig(BaseSettings):

@@ -1,11 +1,11 @@
 """Adapters (implementations) for policy engine module."""
 
 from policy_engine.adapters.memory_tenant_context import MemoryTenantContext
-from policy_engine.adapters.simple_policy_evaluator import SimplePolicyEvaluator
-from policy_engine.adapters.yaml_policy_loader import YAMLPolicyLoader
+from policy_engine.adapters.opa_evaluator import OPAEvaluator
+from policy_engine.adapters.rego_policy_loader import RegoPolicyLoader
 
 __all__ = [
-    "YAMLPolicyLoader",
+    "RegoPolicyLoader",
     "MemoryTenantContext",
-    "SimplePolicyEvaluator",
+    "OPAEvaluator",
 ]

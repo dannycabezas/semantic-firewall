@@ -72,13 +72,14 @@ class PolicyService:
         ml_signals_dict = {
             "pii_score": ml_signals.pii_score,
             "toxicity_score": ml_signals.toxicity_score,
+            "prompt_injection_score": ml_signals.prompt_injection_score,
             "heuristic_blocked": ml_signals.heuristic_blocked,
             "heuristic_flags": ml_signals.heuristic_flags,
             "heuristic_reason": ml_signals.heuristic_reason,
         }
         logger.info(f"ML signals: {ml_signals_dict}")
 
-        # Evaluate
+        # Evaluate - pass policies to evaluator
         result = self.evaluator.evaluate(
             ml_signals=ml_signals_dict, features=features, policies=policies, tenant_context=tenant_context
         )
