@@ -16,6 +16,7 @@ from fast_ml_filter.adapters.onnx_toxicity_detector import ONNXToxicityDetector
 from fast_ml_filter.adapters.presidio_pii_detector import PresidioPIIDetector
 from fast_ml_filter.adapters.regex_heuristic_detector import RegexHeuristicDetector
 from fast_ml_filter.ml_filter_service import MLFilterService
+from fast_ml_filter.adapters.deberta_prompt_injection_detector import DeBERTaPromptInjectionDetector
 from policy_engine.adapters.memory_tenant_context import MemoryTenantContext
 from policy_engine.adapters.simple_policy_evaluator import SimplePolicyEvaluator
 
@@ -71,6 +72,8 @@ class FirewallContainer(containers.DeclarativeContainer):
 
     toxicity_detector = providers.Singleton(ONNXToxicityDetector, model_path=config.provided.ml.toxicity_model)
 
+    prompt_injection_detector = providers.Singleton(DeBERTaPromptInjectionDetector, model_name=config.provided.ml.prompt_injection_model)
+
     heuristic_detector = providers.Factory(RegexHeuristicDetector, rules_path=config.provided.heuristic.rules_path)
 
     # Fast ML Filter Service
@@ -78,6 +81,7 @@ class FirewallContainer(containers.DeclarativeContainer):
         MLFilterService,
         pii_detector=pii_detector,
         toxicity_detector=toxicity_detector,
+        prompt_injection_detector=prompt_injection_detector,
         heuristic_detector=heuristic_detector,
     )
 

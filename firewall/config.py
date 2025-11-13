@@ -41,6 +41,7 @@ class MLConfig(BaseSettings):
     pii_model: Optional[str] = None
     toxicity_model: Optional[str] = "models/toxicity_model.onnx"
     toxicity_tokenizer: str = "unitary/toxic-bert"
+    prompt_injection_model: str = "protectai/deberta-v3-base-prompt-injection"
 
 
 class HeuristicConfig(BaseSettings):
