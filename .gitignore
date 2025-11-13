@@ -212,3 +212,6 @@ __marimo__/
 # Modelos ONNX (pueden ser grandes)
 firewall/models/*.onnx
 !firewall/models/.gitkeep
+firewall/models/*.onnx.data
+# Ruff
+.ruff_cache/
