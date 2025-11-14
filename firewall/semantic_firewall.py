@@ -3,11 +3,12 @@ import os
 import uuid
 
 from container import FirewallContainer
-from core.analyzer import AnalysisDirection, FirewallAnalyzer
+from core.analyzer import FirewallAnalyzer
 from core.backend_proxy import BackendProxyService
 from core.exceptions import (BackendError, ContentBlockedException,
                              FirewallException)
 from core.orchestrator import FirewallOrchestrator
+from fast_ml_filter.ml_filter_service import MLSignals
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -60,21 +61,41 @@ app.add_middleware(
 
 
 class DetectorMetrics(BaseModel):
-    """Métricas de un detector individual."""
+    """Metrics of an individual detector."""
     name: str
     score: float
     latency_ms: float
+    threshold: float | None = None
+    status: str = "pass"  # pass, warn, block
+
+
+class PreprocessingMetrics(BaseModel):
+    """Preprocessing phase metrics."""
+    original_length: int
+    normalized_length: int
+    word_count: int
+    char_count: int
+
+
+class PolicyMetrics(BaseModel):
+    """Policy evaluation metrics."""
+    matched_rule: str | None = None
+    confidence: float
+    risk_level: str  # low, medium, high, critical
+
 
 class ChatResponse(BaseModel):
 
     blocked: bool = False
     reason: str | None = None
     reply: str | None = None
-    # Nuevas métricas
+    # Enhanced metrics
     ml_detectors: list[DetectorMetrics] | None = None
+    preprocessing: PreprocessingMetrics | None = None
+    policy: PolicyMetrics | None = None
+    # Latencies breakdown
+    latency_breakdown: dict[str, float] | None = None
     total_latency_ms: float | None = None
-    analysis_latency_ms: float | None = None
-    backend_latency_ms: float | None = None
 
 
 class ChatRequest(BaseModel):
@@ -84,6 +105,83 @@ class ChatRequest(BaseModel):
 
 def generate_request_id() -> str:
     return str(uuid.uuid4())
+
+
+def get_risk_level(ml_signals: MLSignals) -> str:
+    """Calculate overall risk level."""
+    max_score = max(
+        ml_signals.pii_score,
+        ml_signals.toxicity_score,
+        ml_signals.prompt_injection_score
+    )
+    if max_score >= 0.8 or ml_signals.heuristic_blocked:
+        return "critical"
+    elif max_score >= 0.6:
+        return "high"
+    elif max_score >= 0.3:
+        return "medium"
+    return "low"
+
+
+def get_status(score: float, threshold: float) -> str:
+    """Get status based on score and threshold."""
+    if score >= threshold:
+        return "block"
+    elif score >= threshold * 0.7:
+        return "warn"
+    return "pass"
+
+
+def extract_ml_metrics(ml_signals: MLSignals) -> list[DetectorMetrics]:
+    """Extract ML detector metrics with thresholds and status."""
+    # Thresholds from policies.rego
+    thresholds = {
+        "pii": 0.8,
+        "toxicity": 0.7,
+        "prompt_injection": 0.8,
+        "heuristic": 1.0
+    }
+    
+    metrics = []
+    
+    if hasattr(ml_signals, 'pii_metrics') and ml_signals.pii_metrics:
+        metrics.append(DetectorMetrics(
+            name="PII Detector",
+            score=ml_signals.pii_metrics.score,
+            latency_ms=ml_signals.pii_metrics.latency_ms,
+            threshold=thresholds["pii"],
+            status=get_status(ml_signals.pii_metrics.score, thresholds["pii"])
+        ))
+    
+    if hasattr(ml_signals, 'toxicity_metrics') and ml_signals.toxicity_metrics:
+        metrics.append(DetectorMetrics(
+            name="Toxicity Detector",
+            score=ml_signals.toxicity_metrics.score,
+            latency_ms=ml_signals.toxicity_metrics.latency_ms,
+            threshold=thresholds["toxicity"],
+            status=get_status(ml_signals.toxicity_metrics.score, thresholds["toxicity"])
+        ))
+    
+    if hasattr(ml_signals, 'prompt_injection_metrics') and ml_signals.prompt_injection_metrics:
+        metrics.append(DetectorMetrics(
+            name="Prompt Injection Detector",
+            score=ml_signals.prompt_injection_metrics.score,
+            latency_ms=ml_signals.prompt_injection_metrics.latency_ms,
+            threshold=thresholds["prompt_injection"],
+            status=get_status(ml_signals.prompt_injection_metrics.score, thresholds["prompt_injection"])
+        ))
+    
+    if hasattr(ml_signals, 'heuristic_metrics') and ml_signals.heuristic_metrics:
+        heuristic_score = ml_signals.heuristic_metrics.score
+        metrics.append(DetectorMetrics(
+            name="Heuristic Detector",
+            score=heuristic_score,
+            latency_ms=ml_signals.heuristic_metrics.latency_ms,
+            threshold=thresholds["heuristic"],
+            status="block" if heuristic_score >= 1.0 else "pass"
+        ))
+    
+    return metrics
 
 
 # === ENDPOINTS ===
@@ -123,47 +221,54 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         
         total_latency = (time.time() - request_start_time) * 1000
         
-        # Extraer métricas de los detectores ML
+        # Extract metrics from response
         ml_metrics = []
-        analysis_latency = 0
+        preprocessing_metrics = None
+        policy_metrics = None
+        latency_breakdown = {}
+        
         if "metrics" in response:
             metrics = response["metrics"]
             ml_signals = metrics.get("ml_signals")
-            if ml_signals:
-                if hasattr(ml_signals, 'pii_metrics') and ml_signals.pii_metrics:
-                    ml_metrics.append(DetectorMetrics(
-                        name="PII Detector",
-                        score=ml_signals.pii_metrics.score,
-                        latency_ms=ml_signals.pii_metrics.latency_ms
-                    ))
-                if hasattr(ml_signals, 'toxicity_metrics') and ml_signals.toxicity_metrics:
-                    ml_metrics.append(DetectorMetrics(
-                        name="Toxicity Detector",
-                        score=ml_signals.toxicity_metrics.score,
-                        latency_ms=ml_signals.toxicity_metrics.latency_ms
-                    ))
-                if hasattr(ml_signals, 'prompt_injection_metrics') and ml_signals.prompt_injection_metrics:
-                    ml_metrics.append(DetectorMetrics(
-                        name="Prompt Injection Detector",
-                        score=ml_signals.prompt_injection_metrics.score,
-                        latency_ms=ml_signals.prompt_injection_metrics.latency_ms
-                    ))
-                if hasattr(ml_signals, 'heuristic_metrics') and ml_signals.heuristic_metrics:
-                    ml_metrics.append(DetectorMetrics(
-                        name="Heuristic Detector",
-                        score=ml_signals.heuristic_metrics.score,
-                        latency_ms=ml_signals.heuristic_metrics.latency_ms
-                    ))
+            preprocessed = metrics.get("preprocessed")
+            decision = metrics.get("decision")
             
-            analysis_latency = metrics.get("analysis_latency_ms", 0)
+            # ML Detector metrics with thresholds and status
+            if ml_signals:
+                ml_metrics = extract_ml_metrics(ml_signals)
+                
+                # Policy metrics
+                policy_metrics = PolicyMetrics(
+                    matched_rule=decision.matched_rule if decision else None,
+                    confidence=decision.confidence if decision else 0.5,
+                    risk_level=get_risk_level(ml_signals)
+                )
+            
+            # Preprocessing metrics
+            if preprocessed:
+                preprocessing_metrics = PreprocessingMetrics(
+                    original_length=len(preprocessed.original_text),
+                    normalized_length=len(preprocessed.normalized_text),
+                    word_count=preprocessed.features.get("word_count", 0),
+                    char_count=len(preprocessed.original_text)
+                )
+            
+            # Latency breakdown
+            latency_breakdown = {
+                "preprocessing": metrics.get("preprocessing_latency_ms", 0),
+                "ml_analysis": ml_signals.latency_ms if ml_signals else 0,
+                "policy_eval": metrics.get("policy_latency_ms", 0),
+                "backend": response.get("backend_latency_ms", 0)
+            }
 
         return ChatResponse(
             blocked=False,
             reply=response.get("reply"),
             ml_detectors=ml_metrics,
+            preprocessing=preprocessing_metrics,
+            policy=policy_metrics,
+            latency_breakdown=latency_breakdown,
             total_latency_ms=total_latency,
-            analysis_latency_ms=analysis_latency,
-            backend_latency_ms=response.get("backend_latency_ms"),
         )
 
     except ContentBlockedException as e:
@@ -171,41 +276,49 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         total_latency = (time.time() - request_start_time) * 1000
         logger.warning(f"[{request_id}] Blocked by policies: {e.reason}")
         
-        # Obtener métricas incluso cuando está bloqueado
+        # Extract metrics even when blocked
         ml_metrics = []
-        if hasattr(e, 'ml_signals'):
+        preprocessing_metrics = None
+        policy_metrics = None
+        latency_breakdown = {}
+        
+        if hasattr(e, 'ml_signals') and e.ml_signals:
             ml_signals = e.ml_signals
-            if hasattr(ml_signals, 'pii_metrics') and ml_signals.pii_metrics:
-                ml_metrics.append(DetectorMetrics(
-                    name="PII Detector",
-                    score=ml_signals.pii_metrics.score,
-                    latency_ms=ml_signals.pii_metrics.latency_ms
-                ))
-            if hasattr(ml_signals, 'toxicity_metrics') and ml_signals.toxicity_metrics:
-                ml_metrics.append(DetectorMetrics(
-                    name="Toxicity Detector",
-                    score=ml_signals.toxicity_metrics.score,
-                    latency_ms=ml_signals.toxicity_metrics.latency_ms
-                ))
-            if hasattr(ml_signals, 'prompt_injection_metrics') and ml_signals.prompt_injection_metrics:
-                ml_metrics.append(DetectorMetrics(
-                    name="Prompt Injection Detector",
-                    score=ml_signals.prompt_injection_metrics.score,
-                    latency_ms=ml_signals.prompt_injection_metrics.latency_ms
-                ))
-            if hasattr(ml_signals, 'heuristic_metrics') and ml_signals.heuristic_metrics:
-                ml_metrics.append(DetectorMetrics(
-                    name="Heuristic Detector",
-                    score=ml_signals.heuristic_metrics.score,
-                    latency_ms=ml_signals.heuristic_metrics.latency_ms
-                ))
+            
+            # ML Detector metrics
+            ml_metrics = extract_ml_metrics(ml_signals)
+            
+            # Policy metrics
+            policy_metrics = PolicyMetrics(
+                matched_rule=e.details.get("matched_rule"),
+                confidence=e.details.get("confidence", 0.9),
+                risk_level=get_risk_level(ml_signals)
+            )
+            
+            # Latency breakdown
+            latency_breakdown = {
+                "preprocessing": 0,  # Not available in exception
+                "ml_analysis": ml_signals.latency_ms,
+                "policy_eval": 0,
+                "backend": 0
+            }
+        
+        if hasattr(e, 'preprocessed') and e.preprocessed:
+            preprocessing_metrics = PreprocessingMetrics(
+                original_length=len(e.preprocessed.original_text),
+                normalized_length=len(e.preprocessed.normalized_text),
+                word_count=e.preprocessed.features.get("word_count", 0),
+                char_count=len(e.preprocessed.original_text)
+            )
         
         return ChatResponse(
             blocked=True,
             reason=e.reason,
             ml_detectors=ml_metrics,
+            preprocessing=preprocessing_metrics,
+            policy=policy_metrics,
+            latency_breakdown=latency_breakdown,
             total_latency_ms=total_latency,
-            analysis_latency_ms=e.details.get("latency_ms", 0),
         )
 
     except BackendError as e:

@@ -27,3 +27,4 @@ class ContentBlockedException(FirewallException):
         self.direction = direction
         self.details = details or {}
         self.ml_signals = None  # To attach ML signals
+        self.preprocessed = None  # To attach preprocessed data

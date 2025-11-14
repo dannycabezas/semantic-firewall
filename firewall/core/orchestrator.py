@@ -103,7 +103,11 @@ class FirewallOrchestrator:
             # Add metrics to the response
             backend_response["metrics"] = {
                 "ml_signals": analysis_result.ml_signals if analysis_result else None,
+                "preprocessed": analysis_result.preprocessed if analysis_result else None,
+                "decision": analysis_result.decision if analysis_result else None,
                 "analysis_latency_ms": analysis_result.latency_ms if analysis_result else 0,
+                "preprocessing_latency_ms": 0,  # Could be extracted if needed
+                "policy_latency_ms": 0,  # Could be extracted if needed
             }
             backend_response["backend_latency_ms"] = backend_latency_ms
             
@@ -112,9 +116,10 @@ class FirewallOrchestrator:
         except ContentBlockedException as e:
             # Already orchestrated in _analyze_with_orchestration
             logger.info(f"Content blocked ({e.direction}): {e.reason}")
-            # Attach ml_signals to the exception if available
+            # Attach ml_signals and preprocessed to the exception if available
             if analysis_result:
                 e.ml_signals = analysis_result.ml_signals
+                e.preprocessed = analysis_result.preprocessed
             raise
 
         except BackendError as e:
