@@ -59,16 +59,27 @@ app.add_middleware(
 )
 
 
-class ChatRequest(BaseModel):
-
-    message: str
-
+class DetectorMetrics(BaseModel):
+    """Métricas de un detector individual."""
+    name: str
+    score: float
+    latency_ms: float
 
 class ChatResponse(BaseModel):
 
     blocked: bool = False
     reason: str | None = None
     reply: str | None = None
+    # Nuevas métricas
+    ml_detectors: list[DetectorMetrics] | None = None
+    total_latency_ms: float | None = None
+    analysis_latency_ms: float | None = None
+    backend_latency_ms: float | None = None
+
+
+class ChatRequest(BaseModel):
+
+    message: str
 
 
 def generate_request_id() -> str:
@@ -91,12 +102,15 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         payload: User message
 
     Returns:
-        Backend response or block message
+        Backend response or block message con métricas de detectores
 
     Raises:
         HTTPException: En caso de error
     """
+    import time
+    
     request_id = generate_request_id()
+    request_start_time = time.time()
     logger.info(f"[{request_id}] New chat request: {payload.message[:50]}...")
 
     try:
@@ -106,18 +120,92 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             request_id=request_id,
             analyze_egress=False,
         )
+        
+        total_latency = (time.time() - request_start_time) * 1000
+        
+        # Extraer métricas de los detectores ML
+        ml_metrics = []
+        analysis_latency = 0
+        if "metrics" in response:
+            metrics = response["metrics"]
+            ml_signals = metrics.get("ml_signals")
+            if ml_signals:
+                if hasattr(ml_signals, 'pii_metrics') and ml_signals.pii_metrics:
+                    ml_metrics.append(DetectorMetrics(
+                        name="PII Detector",
+                        score=ml_signals.pii_metrics.score,
+                        latency_ms=ml_signals.pii_metrics.latency_ms
+                    ))
+                if hasattr(ml_signals, 'toxicity_metrics') and ml_signals.toxicity_metrics:
+                    ml_metrics.append(DetectorMetrics(
+                        name="Toxicity Detector",
+                        score=ml_signals.toxicity_metrics.score,
+                        latency_ms=ml_signals.toxicity_metrics.latency_ms
+                    ))
+                if hasattr(ml_signals, 'prompt_injection_metrics') and ml_signals.prompt_injection_metrics:
+                    ml_metrics.append(DetectorMetrics(
+                        name="Prompt Injection Detector",
+                        score=ml_signals.prompt_injection_metrics.score,
+                        latency_ms=ml_signals.prompt_injection_metrics.latency_ms
+                    ))
+                if hasattr(ml_signals, 'heuristic_metrics') and ml_signals.heuristic_metrics:
+                    ml_metrics.append(DetectorMetrics(
+                        name="Heuristic Detector",
+                        score=ml_signals.heuristic_metrics.score,
+                        latency_ms=ml_signals.heuristic_metrics.latency_ms
+                    ))
+            
+            analysis_latency = metrics.get("analysis_latency_ms", 0)
 
         return ChatResponse(
             blocked=False,
             reply=response.get("reply"),
+            ml_detectors=ml_metrics,
+            total_latency_ms=total_latency,
+            analysis_latency_ms=analysis_latency,
+            backend_latency_ms=response.get("backend_latency_ms"),
         )
 
     except ContentBlockedException as e:
         # Blocked by policies
+        total_latency = (time.time() - request_start_time) * 1000
         logger.warning(f"[{request_id}] Blocked by policies: {e.reason}")
+        
+        # Obtener métricas incluso cuando está bloqueado
+        ml_metrics = []
+        if hasattr(e, 'ml_signals'):
+            ml_signals = e.ml_signals
+            if hasattr(ml_signals, 'pii_metrics') and ml_signals.pii_metrics:
+                ml_metrics.append(DetectorMetrics(
+                    name="PII Detector",
+                    score=ml_signals.pii_metrics.score,
+                    latency_ms=ml_signals.pii_metrics.latency_ms
+                ))
+            if hasattr(ml_signals, 'toxicity_metrics') and ml_signals.toxicity_metrics:
+                ml_metrics.append(DetectorMetrics(
+                    name="Toxicity Detector",
+                    score=ml_signals.toxicity_metrics.score,
+                    latency_ms=ml_signals.toxicity_metrics.latency_ms
+                ))
+            if hasattr(ml_signals, 'prompt_injection_metrics') and ml_signals.prompt_injection_metrics:
+                ml_metrics.append(DetectorMetrics(
+                    name="Prompt Injection Detector",
+                    score=ml_signals.prompt_injection_metrics.score,
+                    latency_ms=ml_signals.prompt_injection_metrics.latency_ms
+                ))
+            if hasattr(ml_signals, 'heuristic_metrics') and ml_signals.heuristic_metrics:
+                ml_metrics.append(DetectorMetrics(
+                    name="Heuristic Detector",
+                    score=ml_signals.heuristic_metrics.score,
+                    latency_ms=ml_signals.heuristic_metrics.latency_ms
+                ))
+        
         return ChatResponse(
             blocked=True,
             reason=e.reason,
+            ml_detectors=ml_metrics,
+            total_latency_ms=total_latency,
+            analysis_latency_ms=e.details.get("latency_ms", 0),
         )
 
     except BackendError as e:

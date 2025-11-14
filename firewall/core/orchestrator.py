@@ -56,27 +56,30 @@ class FirewallOrchestrator:
             analyze_egress: If it should analyze the backend response
 
         Returns:
-            Backend response or block message
+            Backend response or block message con métricas
 
         Raises:
             ContentBlockedException: If the content is blocked
             BackendError: If there is an error in the backend
         """
         start_time = time.time()
+        analysis_result = None
 
         try:
             # === INGRESS ANALYSIS ===
-            ingress_result = self._analyze_with_orchestration(
+            analysis_result = self._analyze_with_orchestration(
                 content=message,
                 direction=AnalysisDirection.INGRESS,
                 request_id=request_id,
             )
 
             # === PROXY TO BACKEND ===
+            backend_start = time.time()
             backend_response = await self._proxy_with_error_handling(
                 message=message,
                 request_id=request_id,
             )
+            backend_latency_ms = (time.time() - backend_start) * 1000
 
             # === EGRESS ANALYSIS (OPTIONAL) ===
             if analyze_egress:
@@ -97,11 +100,21 @@ class FirewallOrchestrator:
                 latency_ms=total_latency_ms,
             )
 
+            # Add metrics to the response
+            backend_response["metrics"] = {
+                "ml_signals": analysis_result.ml_signals if analysis_result else None,
+                "analysis_latency_ms": analysis_result.latency_ms if analysis_result else 0,
+            }
+            backend_response["backend_latency_ms"] = backend_latency_ms
+            
             return backend_response
 
         except ContentBlockedException as e:
             # Already orchestrated in _analyze_with_orchestration
             logger.info(f"Content blocked ({e.direction}): {e.reason}")
+            # Attach ml_signals to the exception if available
+            if analysis_result:
+                e.ml_signals = analysis_result.ml_signals
             raise
 
         except BackendError as e:

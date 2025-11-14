@@ -124,7 +124,7 @@ class FirewallAnalyzer:
 
         # Raise exception if blocked
         if decision.blocked:
-            raise ContentBlockedException(
+            exc = ContentBlockedException(
                 reason=decision.reason,
                 direction=direction.value,
                 details={
@@ -133,5 +133,8 @@ class FirewallAnalyzer:
                     "latency_ms": latency_ms,
                 },
             )
+            # Attach ML signals to the exception before raising
+            exc.ml_signals = ml_signals
+            raise exc
 
         return result

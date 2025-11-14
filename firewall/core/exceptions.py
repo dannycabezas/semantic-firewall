@@ -14,11 +14,16 @@ class BackendError(FirewallException):
 
 
 class ContentBlockedException(FirewallException):
-    """Content blocked by policies."""
+    """Exception raised when content is blocked by the firewall."""
 
     def __init__(
-        self, reason: str, direction: str = "ingress", details: dict | None = None
+        self,
+        reason: str,
+        direction: str = "ingress",
+        details: dict | None = None,
     ) -> None:
+        super().__init__(f"Content blocked ({direction}): {reason}")
         self.reason = reason
         self.direction = direction
-        super().__init__(f"Content blocked ({direction}): {reason}", details)
+        self.details = details or {}
+        self.ml_signals = None  # To attach ML signals
