@@ -9,7 +9,10 @@ class QdrantVectorStore(IVectorStore):
     """Qdrant implementation for vector storage."""
 
     def __init__(
-        self, url: str = "http://localhost:6333", collection_name: str = "firewall_vectors", enabled: bool = True
+        self,
+        url: str = "http://localhost:6333",
+        collection_name: str = "firewall_vectors",
+        enabled: bool = True,
     ):
         """
         Initialize Qdrant vector store.
@@ -43,14 +46,18 @@ class QdrantVectorStore(IVectorStore):
                         # Default dimension for all-MiniLM-L6-v2
                         self._client.create_collection(
                             collection_name=self.collection_name,
-                            vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+                            vectors_config=VectorParams(
+                                size=384, distance=Distance.COSINE
+                            ),
                         )
                     self._initialized = True
             except ImportError:
                 # Qdrant not available, use mock mode
                 self.enabled = False
 
-    def store(self, vector_id: str, vector: List[float], metadata: Optional[dict] = None) -> bool:
+    def store(
+        self, vector_id: str, vector: List[float], metadata: Optional[dict] = None
+    ) -> bool:
         """
         Store a vector with optional metadata.
 
@@ -71,7 +78,9 @@ class QdrantVectorStore(IVectorStore):
                 from qdrant_client.models import PointStruct
 
                 point = PointStruct(id=vector_id, vector=vector, payload=metadata or {})
-                self._client.upsert(collection_name=self.collection_name, points=[point])
+                self._client.upsert(
+                    collection_name=self.collection_name, points=[point]
+                )
                 return True
         except Exception:
             pass
@@ -96,9 +105,14 @@ class QdrantVectorStore(IVectorStore):
             self._get_client()
             if self._client:
                 results = self._client.search(
-                    collection_name=self.collection_name, query_vector=query_vector, limit=top_k
+                    collection_name=self.collection_name,
+                    query_vector=query_vector,
+                    limit=top_k,
                 )
-                return [{"id": hit.id, "score": hit.score, "metadata": hit.payload} for hit in results]
+                return [
+                    {"id": hit.id, "score": hit.score, "metadata": hit.payload}
+                    for hit in results
+                ]
         except Exception:
             pass
 

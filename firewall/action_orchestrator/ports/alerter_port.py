@@ -8,7 +8,9 @@ class IAlerter(ABC):
     """Interface for alerting (Slack, webhook, etc.)."""
 
     @abstractmethod
-    def alert(self, severity: str, message: str, context: Dict[str, Any] = None) -> bool:
+    def alert(
+        self, severity: str, message: str, context: Dict[str, Any] = None
+    ) -> bool:
         """
         Send an alert.
 

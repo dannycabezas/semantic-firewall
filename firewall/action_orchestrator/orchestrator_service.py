@@ -29,7 +29,9 @@ class OrchestratorService:
         self.alerter = alerter
         self.idempotency_store = idempotency_store
 
-    def execute(self, decision: PolicyDecision, request_id: str, context: Dict[str, Any] = None) -> None:
+    def execute(
+        self, decision: PolicyDecision, request_id: str, context: Dict[str, Any] = None
+    ) -> None:
         """
         Execute actions based on decision.
 
@@ -45,7 +47,9 @@ class OrchestratorService:
             existing = self.idempotency_store.get(request_id)
             if existing:
                 # Already processed, skip
-                self.logger.log("debug", f"Request {request_id} already processed (idempotent)")
+                self.logger.log(
+                    "debug", f"Request {request_id} already processed (idempotent)"
+                )
                 return
 
         # Log decision
@@ -59,13 +63,19 @@ class OrchestratorService:
         }
 
         if decision.blocked:
-            self.logger.log("warning", f"Request blocked: {decision.reason}", **log_data)
+            self.logger.log(
+                "warning", f"Request blocked: {decision.reason}", **log_data
+            )
             self.logger.log_structured({"event": "request_blocked", **log_data})
 
             # Alert if critical
             if self.alerter and decision.confidence > 0.8:
                 severity = "high" if decision.confidence > 0.9 else "medium"
-                self.alerter.alert(severity=severity, message=f"Request blocked: {decision.reason}", context=log_data)
+                self.alerter.alert(
+                    severity=severity,
+                    message=f"Request blocked: {decision.reason}",
+                    context=log_data,
+                )
         else:
             self.logger.log("info", f"Request allowed", **log_data)
             self.logger.log_structured({"event": "request_allowed", **log_data})
@@ -74,5 +84,9 @@ class OrchestratorService:
         if self.idempotency_store:
             self.idempotency_store.store(
                 request_id,
-                {"decision": decision.blocked, "reason": decision.reason, "timestamp": context.get("timestamp")},
+                {
+                    "decision": decision.blocked,
+                    "reason": decision.reason,
+                    "timestamp": context.get("timestamp"),
+                },
             )

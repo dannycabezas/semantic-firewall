@@ -4,7 +4,6 @@ import logging
 from typing import Any, Dict
 
 import httpx
-
 from policy_engine.ports.policy_evaluator_port import IPolicyEvaluator
 
 logger = logging.getLogger(__name__)
@@ -13,7 +12,11 @@ logger = logging.getLogger(__name__)
 class OPAEvaluator(IPolicyEvaluator):
     """OPA-based policy evaluator using Rego via HTTP API."""
 
-    def __init__(self, opa_url: str = "http://localhost:8181", opa_policy_name: str = "firewall/policy"):
+    def __init__(
+        self,
+        opa_url: str = "http://localhost:8181",
+        opa_policy_name: str = "firewall/policy",
+    ):
         """
         Initialize OPA evaluator.
 
@@ -44,7 +47,7 @@ class OPAEvaluator(IPolicyEvaluator):
             rego_policy: Rego policy content as string
         """
         import hashlib
-        
+
         # Check if policy has changed
         policy_hash = hashlib.md5(rego_policy.encode()).hexdigest()
         if self._current_policy_hash == policy_hash and self._policy_loaded:
@@ -55,19 +58,21 @@ class OPAEvaluator(IPolicyEvaluator):
             # OPA API: PUT /v1/policies/{policy_name}
             policy_name = self.opa_policy_name.replace("/", ".")
             url = f"{self.opa_url}/v1/policies/{policy_name}"
-            
+
             response = self.client.put(
                 url,
                 content=rego_policy,
                 headers={"Content-Type": "text/plain"},
             )
-            
+
             if response.status_code in (200, 201):
                 logger.info(f"Policy '{policy_name}' loaded successfully into OPA")
                 self._policy_loaded = True
                 self._current_policy_hash = policy_hash
             else:
-                error_msg = f"Failed to load policy: {response.status_code} - {response.text}"
+                error_msg = (
+                    f"Failed to load policy: {response.status_code} - {response.text}"
+                )
                 logger.error(error_msg)
                 raise RuntimeError(error_msg)
         except httpx.RequestError as e:
@@ -88,18 +93,20 @@ class OPAEvaluator(IPolicyEvaluator):
             # OPA API: POST /v1/data/{policy_path}
             data_path = self.opa_policy_name
             url = f"{self.opa_url}/v1/data/{data_path}/decision"
-            
+
             response = self.client.post(
                 url,
                 json={"input": input_data},
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
                 # OPA returns {"result": {...}}
                 return result.get("result", {})
             else:
-                error_msg = f"OPA evaluation failed: {response.status_code} - {response.text}"
+                error_msg = (
+                    f"OPA evaluation failed: {response.status_code} - {response.text}"
+                )
                 logger.error(error_msg)
                 raise RuntimeError(error_msg)
         except httpx.RequestError as e:

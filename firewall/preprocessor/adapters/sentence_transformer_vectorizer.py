@@ -27,7 +27,9 @@ class SentenceTransformerVectorizer(IVectorizer):
 
                 self._model = SentenceTransformer(self.model_name)
             except ImportError:
-                raise ImportError("sentence-transformers is required. Install with: pip install sentence-transformers")
+                raise ImportError(
+                    "sentence-transformers is required. Install with: pip install sentence-transformers"
+                )
 
     def vectorize(self, text: str) -> List[float]:
         """

@@ -8,7 +8,9 @@ from action_orchestrator.ports.alerter_port import IAlerter
 class NullAlerter(IAlerter):
     """Null implementation for alerting (no-op)."""
 
-    def alert(self, severity: str, message: str, context: Dict[str, Any] = None) -> bool:
+    def alert(
+        self, severity: str, message: str, context: Dict[str, Any] = None
+    ) -> bool:
         """
         Send an alert (no-op).
 

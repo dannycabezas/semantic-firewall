@@ -1,7 +1,6 @@
 """ONNX-based toxicity detector adapter."""
 
 import numpy as np
-
 from fast_ml_filter.ports.toxicity_detector_port import IToxicityDetector
 
 
@@ -31,7 +30,10 @@ class ONNXToxicityDetector(IToxicityDetector):
 
                 # Load ONNX model
                 self._model = ort.InferenceSession(
-                    self.model_path, providers=["CPUExecutionProvider"]  # o 'CUDAExecutionProvider' si tienes GPU
+                    self.model_path,
+                    providers=[
+                        "CPUExecutionProvider"
+                    ],  # o 'CUDAExecutionProvider' si tienes GPU
                 )
 
                 # Load tokenizer (si tienes el path, úsalo; si no, intenta cargar desde HuggingFace)
@@ -40,12 +42,16 @@ class ONNXToxicityDetector(IToxicityDetector):
                 else:
                     # Intentar cargar el tokenizer del modelo original
                     try:
-                        self._tokenizer = AutoTokenizer.from_pretrained("unitary/toxic-bert")
+                        self._tokenizer = AutoTokenizer.from_pretrained(
+                            "unitary/toxic-bert"
+                        )
                     except:
                         # Fallback: usar tokenizer básico
                         from transformers import BertTokenizer
 
-                        self._tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+                        self._tokenizer = BertTokenizer.from_pretrained(
+                            "bert-base-uncased"
+                        )
 
                 self._use_model = True
                 print(f"✅ Loaded ONNX toxicity model from {self.model_path}")
@@ -69,7 +75,13 @@ class ONNXToxicityDetector(IToxicityDetector):
         if self._use_model and self._model and self._tokenizer:
             try:
                 # Tokenize input
-                inputs = self._tokenizer(text, return_tensors="np", padding=True, truncation=True, max_length=512)
+                inputs = self._tokenizer(
+                    text,
+                    return_tensors="np",
+                    padding=True,
+                    truncation=True,
+                    max_length=512,
+                )
 
                 # Run inference
                 outputs = self._model.run(
@@ -92,10 +104,14 @@ class ONNXToxicityDetector(IToxicityDetector):
                 # Ajusta según la estructura de tu modelo
                 if probs.shape[1] > 1:
                     # Multi-class: suma de probabilidades de clases tóxicas
-                    toxicity_score = float(np.sum(probs[0, 1:]))  # Asumiendo clase 0 = no tóxico
+                    toxicity_score = float(
+                        np.sum(probs[0, 1:])
+                    )  # Asumiendo clase 0 = no tóxico
                 else:
                     # Binary: probabilidad de clase tóxica
-                    toxicity_score = float(probs[0, 1] if probs.shape[1] > 1 else probs[0, 0])
+                    toxicity_score = float(
+                        probs[0, 1] if probs.shape[1] > 1 else probs[0, 0]
+                    )
 
                 return min(toxicity_score, 1.0)
 
@@ -103,7 +119,18 @@ class ONNXToxicityDetector(IToxicityDetector):
                 print(f"⚠️ Error during ONNX inference: {e}. Using fallback.")
 
         # Fallback: keyword-based detection
-        toxic_keywords = ["hate", "kill", "violence", "attack", "harm", "stupid", "idiot", "moron", "damn", "hell"]
+        toxic_keywords = [
+            "hate",
+            "kill",
+            "violence",
+            "attack",
+            "harm",
+            "stupid",
+            "idiot",
+            "moron",
+            "damn",
+            "hell",
+        ]
 
         text_lower = text.lower()
         matches = sum(1 for keyword in toxic_keywords if keyword in text_lower)

@@ -1,12 +1,13 @@
-"""DeBERTa-based prompt injection detector adapter."""
-
-from fast_ml_filter.ports.prompt_injection_detector_port import IPromptInjectionDetector
+from fast_ml_filter.ports.prompt_injection_detector_port import \
+    IPromptInjectionDetector
 
 
 class DeBERTaPromptInjectionDetector(IPromptInjectionDetector):
     """DeBERTa implementation for prompt injection detection using protectai/deberta-v3-base-prompt-injection."""
 
-    def __init__(self, model_name: str = "protectai/deberta-v3-base-prompt-injection"):
+    def __init__(
+        self, model_name: str = "protectai/deberta-v3-base-prompt-injection"
+    ) -> None:
         """
         Initialize DeBERTa prompt injection detector.
 
@@ -18,16 +19,19 @@ class DeBERTaPromptInjectionDetector(IPromptInjectionDetector):
         self._tokenizer = None
         self._use_model = False
 
-    def _load_model(self):
+    def _load_model(self) -> None:
         """Lazy load DeBERTa model and tokenizer."""
         if not self._use_model:
             try:
-                from transformers import AutoModelForSequenceClassification, AutoTokenizer
                 import torch
+                from transformers import (AutoModelForSequenceClassification,
+                                          AutoTokenizer)
 
                 # Load tokenizer and model
                 self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-                self._model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
+                self._model = AutoModelForSequenceClassification.from_pretrained(
+                    self.model_name
+                )
                 self._model.eval()  # Set to evaluation mode
 
                 # Use GPU if available, otherwise CPU
@@ -35,9 +39,11 @@ class DeBERTaPromptInjectionDetector(IPromptInjectionDetector):
                 self._model = self._model.to(self._device)
 
                 self._use_model = True
-                print(f"✅ Loaded DeBERTa prompt injection model: {self.model_name} on {self._device}")
+                print(
+                    f"Loaded DeBERTa prompt injection model: {self.model_name} on {self._device}"
+                )
             except Exception as e:
-                print(f"⚠️ Failed to load DeBERTa model: {e}. Using fallback.")
+                print(f"Failed to load DeBERTa model: {e}. Using fallback.")
                 self._use_model = False
 
     def detect(self, text: str) -> float:
@@ -88,7 +94,7 @@ class DeBERTaPromptInjectionDetector(IPromptInjectionDetector):
                 return min(injection_score, 1.0)
 
             except Exception as e:
-                print(f"⚠️ Error during DeBERTa inference: {e}. Using fallback.")
+                print(f"Error during DeBERTa inference: {e}. Using fallback.")
 
         # Fallback: keyword-based detection
         injection_keywords = [

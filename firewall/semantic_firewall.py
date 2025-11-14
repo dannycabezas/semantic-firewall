@@ -1,18 +1,17 @@
-"""Semantic Firewall - Main application with integrated components."""
-
 import logging
 import os
-import time
 import uuid
 
-import httpx
-from fastapi import FastAPI
+from container import FirewallContainer
+from core.analyzer import AnalysisDirection, FirewallAnalyzer
+from core.backend_proxy import BackendProxyService
+from core.exceptions import (BackendError, ContentBlockedException,
+                             FirewallException)
+from core.orchestrator import FirewallOrchestrator
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from container import FirewallContainer
-
-# Debug configuration
 DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
 if DEBUG_MODE:
     import debugpy
@@ -24,10 +23,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
-LOG_LEVEL = os.getenv("LOG_LEVEL", "info").lower()
+TENANT_ID = os.getenv("TENANT_ID", "default")
 
-# Initialize dependency injection container
 container = FirewallContainer()
+
+
+def create_firewall_orchestrator() -> FirewallOrchestrator:
+    """Factory to create the firewall orchestrator."""
+    analyzer = FirewallAnalyzer(
+        preprocessor=container.preprocessor_service(),
+        ml_filter=container.ml_filter_service(),
+        policy_engine=container.policy_service(),
+        tenant_id=TENANT_ID,
+    )
+
+    proxy = BackendProxyService(backend_url=BACKEND_URL, timeout=30.0)
+
+    orchestrator = container.orchestrator_service()
+
+    return FirewallOrchestrator(
+        analyzer=analyzer,
+        proxy=proxy,
+        orchestrator=orchestrator,
+    )
+
+
+firewall = create_firewall_orchestrator()
 
 app = FastAPI(title="SPG Semantic Firewall")
 app.add_middleware(
@@ -38,116 +59,93 @@ app.add_middleware(
 )
 
 
-class ChatIn(BaseModel):
+class ChatRequest(BaseModel):
+
     message: str
 
 
-class Decision(BaseModel):
-    blocked: bool
+class ChatResponse(BaseModel):
+
+    blocked: bool = False
     reason: str | None = None
+    reply: str | None = None
 
 
 def generate_request_id() -> str:
-    """Generate unique request ID."""
     return str(uuid.uuid4())
 
 
-@app.post("/api/chat")
-async def proxy_chat(payload: ChatIn):
+# === ENDPOINTS ===
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
     """
-    Main chat endpoint with integrated firewall components.
+    Endpoint principal of chat with firewall integrated.
 
     Flow:
-    1. Preprocess (normalize, vectorize, extract features)
-    2. Fast ML Filter (PII, toxicity, heuristics)
-    3. Policy Engine (evaluate policies)
-    4. Action Orchestrator (log, alert, etc.)
-    5. Decision: block or allow (proxy to backend)
-    """
-    logger.info(f"Received chat request: {payload.message}")
-    start = time.time()
-    request_id = generate_request_id()
+    1. Analysis ingress (preprocess + ML + policies)
+    2. Proxy to backend (if passes the firewall)
+    3. Analysis egress (backend response)
+    4. Return response or block
 
-    # Get services from container
-    preprocessor = container.preprocessor_service()
-    ml_filter = container.ml_filter_service()
-    policy_engine = container.policy_service()
-    orchestrator = container.orchestrator_service()
+    Args:
+        payload: User message
+
+    Returns:
+        Backend response or block message
+
+    Raises:
+        HTTPException: En caso de error
+    """
+    request_id = generate_request_id()
+    logger.info(f"[{request_id}] New chat request: {payload.message[:50]}...")
 
     try:
-        # 1. Preprocess
-        preprocessed = preprocessor.preprocess(payload.message, store=False)
-        logger.info(f"Preprocessed message: {preprocessed.normalized_text}")
-        # 2. Fast ML Filter
-        ml_signals = ml_filter.analyze(preprocessed.normalized_text)
-        logger.info(f"ML signals: {ml_signals}")
-        # 3. Policy Engine
-        decision = policy_engine.evaluate(
-            ml_signals=ml_signals,
-            features=preprocessed.features,
-            tenant_id="default",  # Can be extracted from request headers
-        )
-        logger.info(f"Decision: {decision}")
-        # 4. Action Orchestrator
-        orchestrator.execute(
-            decision=decision,
+        # Process complete request through the orchestrator
+        response = await firewall.process_chat_request(
+            message=payload.message,
             request_id=request_id,
-            context={
-                "timestamp": time.time(),
-                "message_length": len(payload.message),
-                "latency_ms": ml_signals.latency_ms,
-            },
+            analyze_egress=False,
         )
-        logger.info(f"Orchestrator executed")
-        # 5. Decision: block or allow
-        if decision.blocked:
-            logger.info(f"Decision is blocked: {decision.reason}")
-            return {"blocked": True, "reason": decision.reason}
-        # Allow: proxy to backend
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                logger.info(f"Proxying to backend: {BACKEND_URL}")
-                r = await client.post(f"{BACKEND_URL}/api/chat", json={"message": payload.message})
-                logger.info(f"Backend response: {r.status_code}")
-                r.raise_for_status()
-                logger.info(f"Backend response: {r.json()}")
-                data = r.json()
-            except Exception as e:
-                logger.error(f"Backend error: {e}")
-                orchestrator.logger.log("error", f"Backend error: {e}", backend_url=BACKEND_URL)
-                return {"blocked": True, "reason": "Error contacting backend."}
 
-        # Optional: analyze outbound content (egress filter)
-        reply = (data or {}).get("reply", "")
-        if reply:
-            logger.info(f"Analyzing outbound content: {reply}")
-            # Preprocess reply
-            reply_preprocessed = preprocessor.preprocess(reply, store=False)
-            logger.info(f"Reply preprocessed: {reply_preprocessed.normalized_text}")
-            reply_ml_signals = ml_filter.analyze(reply_preprocessed.normalized_text)
-            logger.info(f"Reply ML signals: {reply_ml_signals}")
-            reply_decision = policy_engine.evaluate(
-                ml_signals=reply_ml_signals, features=reply_preprocessed.features, tenant_id="default"
-            )
-            logger.info(f"Reply decision: {reply_decision}")
-            if reply_decision.blocked:
-                logger.info(f"Reply decision is blocked: {reply_decision.reason}")
-                orchestrator.execute(
-                    decision=reply_decision,
-                    request_id=f"{request_id}_egress",
-                    context={"timestamp": time.time(), "direction": "egress"},
-                )
-                logger.info(f"Orchestrator executed")
-                return {"blocked": True, "reason": reply_decision.reason}
+        return ChatResponse(
+            blocked=False,
+            reply=response.get("reply"),
+        )
 
-        dt = (time.time() - start) * 1000
-        orchestrator.logger.log("info", f"Request allowed - latency: {dt:.1f}ms", request_id=request_id, latency_ms=dt)
+    except ContentBlockedException as e:
+        # Blocked by policies
+        logger.warning(f"[{request_id}] Blocked by policies: {e.reason}")
+        return ChatResponse(
+            blocked=True,
+            reason=e.reason,
+        )
 
-        logger.info(f"Request allowed - latency: {dt:.1f}ms")
-        return data
+    except BackendError as e:
+        # Backend error
+        logger.error(f"[{request_id}] Backend error: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Error communicating with the backend: {e.message}",
+        ) from e
+
+    except FirewallException as e:
+        # General firewall error
+        logger.error(f"[{request_id}] Firewall error: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal firewall error: {e.message}",
+        ) from e
 
     except Exception as e:
-        # Error handling
-        orchestrator.logger.log("error", f"Firewall error: {e}", request_id=request_id, error=str(e))
-        logger.error(f"Firewall error: {e}")
-        return {"blocked": True, "reason": "Internal firewall error."}
+        # Unexpected error
+        logger.exception(f"[{request_id}] Unexpected error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        ) from e
+
+
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    """Health check endpoint."""
+    return {"status": "healthy", "service": "semantic-firewall"}

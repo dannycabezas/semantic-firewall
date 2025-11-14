@@ -5,7 +5,6 @@ import re
 from typing import Any, Dict
 
 import yaml
-
 from fast_ml_filter.ports.heuristic_detector_port import IHeuristicDetector
 
 
@@ -27,11 +26,17 @@ class RegexHeuristicDetector(IHeuristicDetector):
     def _load_rules(self):
         """Load rules from YAML file."""
         try:
-            rules_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), self.rules_path)
+            rules_file = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                self.rules_path,
+            )
             if os.path.exists(rules_file):
                 with open(rules_file, "r") as f:
                     rules = yaml.safe_load(f) or {}
-                    self.patterns = [re.compile(pat, re.IGNORECASE) for pat in (rules.get("patterns") or [])]
+                    self.patterns = [
+                        re.compile(pat, re.IGNORECASE)
+                        for pat in (rules.get("patterns") or [])
+                    ]
                     self.denylist = [s.lower() for s in (rules.get("denylist") or [])]
         except Exception:
             # Fallback to empty rules

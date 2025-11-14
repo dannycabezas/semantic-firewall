@@ -11,8 +11,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class ChatIn(BaseModel):
     message: str
+
 
 @app.post("/api/chat")
 async def chat(payload: ChatIn):

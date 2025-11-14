@@ -75,7 +75,11 @@ class PreprocessorService:
         # 4. Store if enabled
         if store:
             if self.vector_store:
-                metadata = {"original_length": len(text), "normalized_length": len(normalized_text), **features}
+                metadata = {
+                    "original_length": len(text),
+                    "normalized_length": len(normalized_text),
+                    **features,
+                }
                 self.vector_store.store(vector_id, embedding, metadata)
 
             if self.feature_store:

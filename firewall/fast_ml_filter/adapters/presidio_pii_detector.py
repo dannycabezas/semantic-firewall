@@ -22,7 +22,9 @@ class PresidioPIIDetector(IPIIDetector):
             self._available = True
             print("✅ Presidio PII detector initialized")
         except ImportError:
-            print("⚠️ Presidio not available. Install with: pip install presidio-analyzer")
+            print(
+                "⚠️ Presidio not available. Install with: pip install presidio-analyzer"
+            )
             self._available = False
         except Exception as e:
             print(f"⚠️ Failed to initialize Presidio: {e}")

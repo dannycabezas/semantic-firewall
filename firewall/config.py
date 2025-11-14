@@ -8,7 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class PromptConfig(BaseSettings):
     """Prompt configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="FIREWALL_PROMPT_", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_prefix="FIREWALL_PROMPT_", case_sensitive=False
+    )
 
     max_prompt_chars: int = 4000
     block_on_match: bool = True
@@ -18,7 +20,9 @@ class PromptConfig(BaseSettings):
 class VectorizerConfig(BaseSettings):
     """Vectorizer configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="FIREWALL_VECTORIZER_", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_prefix="FIREWALL_VECTORIZER_", case_sensitive=False
+    )
 
     model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -26,7 +30,9 @@ class VectorizerConfig(BaseSettings):
 class QdrantConfig(BaseSettings):
     """Qdrant vector store configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="FIREWALL_QDRANT_", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_prefix="FIREWALL_QDRANT_", case_sensitive=False
+    )
 
     url: str = "http://localhost:6333"
     collection_name: str = "firewall_vectors"
@@ -41,13 +47,15 @@ class MLConfig(BaseSettings):
     pii_model: Optional[str] = None
     toxicity_model: Optional[str] = "models/toxicity_model.onnx"
     toxicity_tokenizer: str = "unitary/toxic-bert"
-    prompt_injection_model: str = "protectai/deberta-v3-base-prompt-injection"
+    prompt_injection_model: str = "ProtectAI/deberta-v3-base-prompt-injection-v2"
 
 
 class HeuristicConfig(BaseSettings):
     """Heuristic detector configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="FIREWALL_HEURISTIC_", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_prefix="FIREWALL_HEURISTIC_", case_sensitive=False
+    )
 
     rules_path: str = "rules/prompt_injection_rules.yaml"
 
@@ -55,7 +63,9 @@ class HeuristicConfig(BaseSettings):
 class PolicyConfig(BaseSettings):
     """Policy engine configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="FIREWALL_POLICY_", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_prefix="FIREWALL_POLICY_", case_sensitive=False
+    )
 
     policies_path: str = "policy_engine/policies.rego"
     opa_url: str = "http://localhost:8181"
@@ -65,7 +75,9 @@ class PolicyConfig(BaseSettings):
 class LoggingConfig(BaseSettings):
     """Logging configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="FIREWALL_LOGGING_", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_prefix="FIREWALL_LOGGING_", case_sensitive=False
+    )
 
     type: str = "print"
 

@@ -20,7 +20,9 @@ def convert_toxicity_model():
     output_path.parent.mkdir(exist_ok=True)
 
     # Crear dummy input
-    dummy_input = tokenizer("test", return_tensors="pt", padding=True, truncation=True, max_length=512)
+    dummy_input = tokenizer(
+        "test", return_tensors="pt", padding=True, truncation=True, max_length=512
+    )
 
     # Exportar a ONNX
     torch.onnx.export(

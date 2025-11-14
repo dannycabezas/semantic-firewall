@@ -48,7 +48,12 @@ class SimplePolicyEvaluator(IPolicyEvaluator):
                 }
 
         # Default action
-        return {"blocked": default_action == "block", "reason": None, "confidence": 0.5, "matched_rule": None}
+        return {
+            "blocked": default_action == "block",
+            "reason": None,
+            "confidence": 0.5,
+            "matched_rule": None,
+        }
 
     def _evaluate_condition(self, condition: str, context: Dict[str, Any]) -> bool:
         """

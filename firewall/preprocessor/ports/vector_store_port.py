@@ -8,7 +8,9 @@ class IVectorStore(ABC):
     """Interface for vector storage (Qdrant, Pinecone, etc.)."""
 
     @abstractmethod
-    def store(self, vector_id: str, vector: List[float], metadata: Optional[dict] = None) -> bool:
+    def store(
+        self, vector_id: str, vector: List[float], metadata: Optional[dict] = None
+    ) -> bool:
         """
         Store a vector with optional metadata.
 

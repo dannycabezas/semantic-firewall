@@ -4,7 +4,6 @@ import os
 from typing import Any, Dict
 
 import yaml
-
 from policy_engine.ports.policy_loader_port import IPolicyLoader
 
 

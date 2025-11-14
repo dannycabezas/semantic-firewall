@@ -34,6 +34,8 @@ class RegoPolicyLoader(IPolicyLoader):
                 with open(full_path, "r", encoding="utf-8") as f:
                     return {"rego_policy": f.read(), "path": full_path}
         except Exception as e:
-            raise RuntimeError(f"Failed to load Rego policy from {self.policies_path}: {e}") from e
+            raise RuntimeError(
+                f"Failed to load Rego policy from {self.policies_path}: {e}"
+            ) from e
 
         raise FileNotFoundError(f"Rego policy file not found: {self.policies_path}")

@@ -50,7 +50,12 @@ class PolicyService:
             self._policies = self.loader.load()
         return self._policies
 
-    def evaluate(self, ml_signals: MLSignals, features: Dict[str, Any], tenant_id: str = "default") -> PolicyDecision:
+    def evaluate(
+        self,
+        ml_signals: MLSignals,
+        features: Dict[str, Any],
+        tenant_id: str = "default",
+    ) -> PolicyDecision:
         """
         Evaluate policies and make decision.
 
@@ -81,7 +86,10 @@ class PolicyService:
 
         # Evaluate - pass policies to evaluator
         result = self.evaluator.evaluate(
-            ml_signals=ml_signals_dict, features=features, policies=policies, tenant_context=tenant_context
+            ml_signals=ml_signals_dict,
+            features=features,
+            policies=policies,
+            tenant_context=tenant_context,
         )
 
         return PolicyDecision(
