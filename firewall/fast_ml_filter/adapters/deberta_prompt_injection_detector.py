@@ -3,10 +3,10 @@ from fast_ml_filter.ports.prompt_injection_detector_port import \
 
 
 class DeBERTaPromptInjectionDetector(IPromptInjectionDetector):
-    """DeBERTa implementation for prompt injection detection using protectai/deberta-v3-base-prompt-injection."""
+    """DeBERTa implementation for prompt injection detection using protectai/deberta-v3-base-prompt-injection-v2."""
 
     def __init__(
-        self, model_name: str = "protectai/deberta-v3-base-prompt-injection"
+        self, model_name: str = "ProtectAI/deberta-v3-base-prompt-injection-v2"
     ) -> None:
         """
         Initialize DeBERTa prompt injection detector.
@@ -15,32 +15,39 @@ class DeBERTaPromptInjectionDetector(IPromptInjectionDetector):
             model_name: HuggingFace model identifier
         """
         self.model_name = model_name
-        self._model = None
-        self._tokenizer = None
+        self._classifier = None
         self._use_model = False
 
     def _load_model(self) -> None:
-        """Lazy load DeBERTa model and tokenizer."""
+        """Lazy load DeBERTa model with pipeline."""
         if not self._use_model:
             try:
                 import torch
                 from transformers import (AutoModelForSequenceClassification,
-                                          AutoTokenizer)
+                                          AutoTokenizer, pipeline)
 
                 # Load tokenizer and model
-                self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-                self._model = AutoModelForSequenceClassification.from_pretrained(
+                tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+                model = AutoModelForSequenceClassification.from_pretrained(
                     self.model_name
                 )
-                self._model.eval()  # Set to evaluation mode
-
+                
                 # Use GPU if available, otherwise CPU
-                self._device = "cuda" if torch.cuda.is_available() else "cpu"
-                self._model = self._model.to(self._device)
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                
+                # Create pipeline
+                self._classifier = pipeline(
+                    "text-classification",
+                    model=model,
+                    tokenizer=tokenizer,
+                    truncation=True,
+                    max_length=512,
+                    device=device,
+                )
 
                 self._use_model = True
                 print(
-                    f"Loaded DeBERTa prompt injection model: {self.model_name} on {self._device}"
+                    f"Loaded DeBERTa prompt injection model: {self.model_name} on {device}"
                 )
             except Exception as e:
                 print(f"Failed to load DeBERTa model: {e}. Using fallback.")
@@ -59,39 +66,22 @@ class DeBERTaPromptInjectionDetector(IPromptInjectionDetector):
         # Try to use DeBERTa model if available
         self._load_model()
 
-        if self._use_model and self._model and self._tokenizer:
+        if self._use_model and self._classifier:
             try:
-                import torch
-
-                # Tokenize input
-                inputs = self._tokenizer(
-                    text,
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,
-                    max_length=512,
-                )
-                inputs = {k: v.to(self._device) for k, v in inputs.items()}
-
-                # Run inference
-                with torch.no_grad():
-                    outputs = self._model(**inputs)
-                    logits = outputs.logits
-
-                # Apply softmax to get probabilities
-                import torch.nn.functional as F
-
-                probs = F.softmax(logits, dim=-1)
-
-                # The model typically outputs: [no_injection_prob, injection_prob]
-                # Return the probability of prompt injection (class 1)
-                if probs.shape[1] > 1:
-                    injection_score = float(probs[0, 1].item())
-                else:
-                    # Fallback if single output
-                    injection_score = float(probs[0, 0].item())
-
-                return min(injection_score, 1.0)
+                result = self._classifier(text)
+                # result format: [{'label': 'INJECTION' or 'SAFE', 'score': 0.95}]
+                
+                # Look for INJECTION label score
+                for item in result:
+                    label = item.get('label', '').upper()
+                    if 'INJECTION' in label:
+                        return float(item['score'])
+                    elif 'SAFE' in label:
+                        # If SAFE, return inverse (1 - score means injection probability)
+                        return 1.0 - float(item['score'])
+                
+                # Fallback: use first score
+                return float(result[0]['score'])
 
             except Exception as e:
                 print(f"Error during DeBERTa inference: {e}. Using fallback.")
