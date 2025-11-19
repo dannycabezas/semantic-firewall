@@ -1,6 +1,9 @@
+import asyncio
 import logging
 import os
 import uuid
+from datetime import datetime
+from typing import List
 
 from container import FirewallContainer
 from core.analyzer import FirewallAnalyzer
@@ -9,8 +12,9 @@ from core.exceptions import (BackendError, ContentBlockedException,
                              FirewallException)
 from core.orchestrator import FirewallOrchestrator
 from fast_ml_filter.ml_filter_service import MLSignals
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
+from metrics_manager import MetricsManager, RequestEvent
 from pydantic import BaseModel
 
 DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
@@ -27,6 +31,69 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 TENANT_ID = os.getenv("TENANT_ID", "default")
 
 container = FirewallContainer()
+
+# Initialize MetricsManager
+metrics_manager = MetricsManager(max_requests=500)
+
+# Event queue for WebSocket broadcasts
+event_queue: asyncio.Queue = None
+
+
+class ConnectionManager:
+    """Manages WebSocket connections with heartbeat."""
+
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self.heartbeat_interval = 30  # seconds
+        self.heartbeat_timeout = 90  # seconds
+
+    async def connect(self, websocket: WebSocket):
+        """Accept and register a new WebSocket connection."""
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
+
+    def disconnect(self, websocket: WebSocket):
+        """Remove a WebSocket connection."""
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
+
+    async def send_personal_message(self, message: dict, websocket: WebSocket):
+        """Send a message to a specific WebSocket."""
+        try:
+            await websocket.send_json(message)
+        except Exception as e:
+            logger.error(f"Error sending message to websocket: {e}")
+            self.disconnect(websocket)
+
+    async def broadcast(self, message: dict):
+        """Broadcast a message to all connected WebSockets."""
+        disconnected = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error broadcasting to websocket: {e}")
+                disconnected.append(connection)
+
+        # Clean up disconnected clients
+        for conn in disconnected:
+            self.disconnect(conn)
+
+    async def heartbeat_sender(self, websocket: WebSocket):
+        """Send periodic heartbeat pings to keep connection alive."""
+        try:
+            while websocket in self.active_connections:
+                await asyncio.sleep(self.heartbeat_interval)
+                if websocket in self.active_connections:
+                    await websocket.send_json({"type": "ping"})
+        except Exception as e:
+            logger.error(f"Heartbeat sender error: {e}")
+            self.disconnect(websocket)
+
+
+manager = ConnectionManager()
 
 
 def create_firewall_orchestrator() -> FirewallOrchestrator:
@@ -58,6 +125,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize event queue and background tasks on startup."""
+    global event_queue
+    event_queue = asyncio.Queue()
+    asyncio.create_task(event_broadcaster())
+    logger.info("SPG Semantic Firewall started with WebSocket support")
+
+
+async def event_broadcaster():
+    """Background task to broadcast events from queue to all WebSocket clients."""
+    global event_queue
+    while True:
+        try:
+            event = await event_queue.get()
+            await manager.broadcast(event)
+        except Exception as e:
+            logger.error(f"Error in event broadcaster: {e}")
 
 
 class DetectorMetrics(BaseModel):
@@ -130,6 +217,114 @@ def get_status(score: float, threshold: float) -> str:
     elif score >= threshold * 0.7:
         return "warn"
     return "pass"
+
+
+def determine_risk_category(ml_signals: MLSignals) -> str:
+    """Determine primary risk category from ML signals."""
+    scores = {
+        "injection": ml_signals.prompt_injection_score if hasattr(ml_signals, 'prompt_injection_score') else 0,
+        "pii": ml_signals.pii_score if hasattr(ml_signals, 'pii_score') else 0,
+        "toxicity": ml_signals.toxicity_score if hasattr(ml_signals, 'toxicity_score') else 0,
+    }
+    
+    # Check heuristic block first
+    if ml_signals.heuristic_blocked:
+        return "leak"  # Heuristic blocks often indicate leak attempts
+    
+    # Find highest score
+    max_category = max(scores, key=scores.get)
+    if scores[max_category] > 0.3:
+        return max_category
+    
+    return "clean"
+
+
+def create_standardized_event(
+    request_id: str,
+    prompt: str,
+    response: str,
+    blocked: bool,
+    ml_signals: MLSignals,
+    preprocessed,
+    decision,
+    latency_breakdown: dict,
+    total_latency: float,
+    session_id: str = None
+) -> dict:
+    """
+    Create a standardized event dictionary for WebSocket broadcast.
+    
+    Args:
+        request_id: Unique request ID
+        prompt: User prompt
+        response: Response or block reason
+        blocked: Whether request was blocked
+        ml_signals: ML analysis signals
+        preprocessed: Preprocessed data
+        decision: Policy decision
+        latency_breakdown: Breakdown of latencies
+        total_latency: Total latency
+        session_id: Optional session ID
+        
+    Returns:
+        Standardized event dictionary
+    """
+    risk_level = get_risk_level(ml_signals)
+    risk_category = determine_risk_category(ml_signals)
+    
+    # Map risk level to our standard levels
+    risk_level_map = {
+        "low": "benign",
+        "medium": "suspicious",
+        "high": "suspicious",
+        "critical": "malicious"
+    }
+    standard_risk_level = risk_level_map.get(risk_level, "benign")
+    
+    # Extract scores
+    scores = {
+        "prompt_injection": getattr(ml_signals, 'prompt_injection_score', 0.0),
+        "pii": getattr(ml_signals, 'pii_score', 0.0),
+        "toxicity": getattr(ml_signals, 'toxicity_score', 0.0),
+        "heuristic": 1.0 if ml_signals.heuristic_blocked else 0.0,
+    }
+    
+    # Extract heuristics
+    heuristics = []
+    if ml_signals.heuristic_blocked:
+        heuristics.append("heuristic_match")
+    
+    # Build event
+    event = {
+        "id": request_id,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "prompt": prompt[:500] if len(prompt) > 500 else prompt,  # Truncate long prompts
+        "response": response[:500] if len(response) > 500 else response,
+        "risk_level": standard_risk_level,
+        "risk_category": risk_category,
+        "scores": scores,
+        "heuristics": heuristics,
+        "policy": {
+            "matched_rule": decision.matched_rule if decision else None,
+            "decision": "block" if blocked else "allow",
+        },
+        "action": "block" if blocked else "allow",
+        "latency_ms": {
+            "preprocessing": latency_breakdown.get("preprocessing", 0),
+            "ml": latency_breakdown.get("ml_analysis", 0),
+            "policy": latency_breakdown.get("policy_eval", 0),
+            "backend": latency_breakdown.get("backend", 0),
+            "total": total_latency,
+        },
+        "session_id": session_id,
+        "preprocessing_info": {
+            "original_length": len(preprocessed.original_text) if preprocessed else 0,
+            "normalized_length": len(preprocessed.normalized_text) if preprocessed else 0,
+            "word_count": preprocessed.features.get("word_count", 0) if preprocessed else 0,
+        } if preprocessed else None,
+    }
+    
+    return event
 
 
 def extract_ml_metrics(ml_signals: MLSignals) -> list[DetectorMetrics]:
@@ -261,6 +456,29 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
                 "backend": response.get("backend_latency_ms", 0)
             }
 
+        # Create standardized event and broadcast
+        if ml_signals and preprocessed and decision:
+            event = create_standardized_event(
+                request_id=request_id,
+                prompt=payload.message,
+                response=response.get("reply", ""),
+                blocked=False,
+                ml_signals=ml_signals,
+                preprocessed=preprocessed,
+                decision=decision,
+                latency_breakdown=latency_breakdown,
+                total_latency=total_latency,
+                session_id=None  # TODO: Add session tracking
+            )
+            
+            # Add to metrics manager
+            request_event = RequestEvent(**event)
+            metrics_manager.add_request(request_event)
+            
+            # Broadcast to WebSocket clients
+            if event_queue:
+                await event_queue.put(event)
+        
         return ChatResponse(
             blocked=False,
             reply=response.get("reply"),
@@ -311,6 +529,29 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
                 char_count=len(e.preprocessed.original_text)
             )
         
+        # Create standardized event for blocked request and broadcast
+        if ml_signals:
+            event = create_standardized_event(
+                request_id=request_id,
+                prompt=payload.message,
+                response=e.reason,
+                blocked=True,
+                ml_signals=ml_signals,
+                preprocessed=e.preprocessed if hasattr(e, 'preprocessed') else None,
+                decision=type('obj', (object,), {'matched_rule': e.details.get("matched_rule")})(),
+                latency_breakdown=latency_breakdown,
+                total_latency=total_latency,
+                session_id=None  # TODO: Add session tracking
+            )
+            
+            # Add to metrics manager
+            request_event = RequestEvent(**event)
+            metrics_manager.add_request(request_event)
+            
+            # Broadcast to WebSocket clients
+            if event_queue:
+                await event_queue.put(event)
+        
         return ChatResponse(
             blocked=True,
             reason=e.reason,
@@ -350,3 +591,134 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "healthy", "service": "semantic-firewall"}
+
+
+@app.websocket("/ws/dashboard")
+async def websocket_dashboard(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time dashboard updates.
+    
+    Sends:
+    - Real-time request events as they are processed
+    - Periodic heartbeat pings
+    
+    Expects:
+    - Pong responses to heartbeat pings
+    """
+    await manager.connect(websocket)
+    
+    # Start heartbeat task
+    heartbeat_task = asyncio.create_task(manager.heartbeat_sender(websocket))
+    
+    try:
+        while True:
+            # Listen for messages from client (mainly pong responses)
+            data = await websocket.receive_json()
+            
+            if data.get("type") == "pong":
+                # Client responded to heartbeat
+                logger.debug("Received pong from dashboard client")
+            
+    except WebSocketDisconnect:
+        logger.info("Dashboard WebSocket disconnected")
+        manager.disconnect(websocket)
+        heartbeat_task.cancel()
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        manager.disconnect(websocket)
+        heartbeat_task.cancel()
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """
+    Get executive KPIs and aggregated statistics.
+    
+    Returns:
+        Dictionary with:
+        - Total prompts
+        - Percentage breakdowns (benign, suspicious, malicious)
+        - Block/allow ratio
+        - Prompts per minute
+        - Risk trend
+        - Average latencies
+        - Risk category breakdown
+    """
+    try:
+        stats = metrics_manager.get_stats()
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving statistics"
+        )
+
+
+@app.get("/api/recent-requests")
+async def get_recent_requests(limit: int = 50):
+    """
+    Get the most recent N requests.
+    
+    Args:
+        limit: Maximum number of requests to return (default: 50, max: 200)
+        
+    Returns:
+        List of recent request events
+    """
+    try:
+        # Limit to max 200
+        limit = min(limit, 200)
+        recent = metrics_manager.get_recent(limit=limit)
+        return {"requests": recent, "count": len(recent)}
+    except Exception as e:
+        logger.error(f"Error getting recent requests: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving recent requests"
+        )
+
+
+@app.get("/api/session-analytics")
+async def get_session_analytics(top: int = 5):
+    """
+    Get analytics for top sessions with most suspicious activity.
+    
+    Args:
+        top: Number of top sessions to return (default: 5)
+        
+    Returns:
+        List of session analytics
+    """
+    try:
+        analytics = metrics_manager.get_session_analytics(top_n=top)
+        return {"sessions": analytics, "count": len(analytics)}
+    except Exception as e:
+        logger.error(f"Error getting session analytics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving session analytics"
+        )
+
+
+@app.get("/api/temporal-breakdown")
+async def get_temporal_breakdown(minutes: int = 10):
+    """
+    Get temporal breakdown of risk categories.
+    
+    Args:
+        minutes: Number of minutes to analyze (default: 10, max: 60)
+        
+    Returns:
+        Temporal breakdown with timestamps and category counts
+    """
+    try:
+        minutes = min(minutes, 60)
+        breakdown = metrics_manager.get_temporal_breakdown(minutes=minutes)
+        return breakdown
+    except Exception as e:
+        logger.error(f"Error getting temporal breakdown: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving temporal breakdown"
+        )
