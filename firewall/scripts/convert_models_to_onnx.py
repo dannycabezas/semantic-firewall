@@ -1,5 +1,3 @@
-"""Script para convertir modelos de Hugging Face a ONNX."""
-
 from pathlib import Path
 
 import torch
@@ -7,7 +5,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 
 def convert_toxicity_model():
-    """Convertir modelo de toxicidad a ONNX."""
+    """Convert the toxicity model to ONNX."""
     model_name = "unitary/toxic-bert"
     output_path = Path("models/toxicity_model.onnx")
 
@@ -16,15 +14,15 @@ def convert_toxicity_model():
     model = AutoModelForSequenceClassification.from_pretrained(model_name)
     model.eval()
 
-    # Crear directorio si no existe
+    # Create directory if it doesn't exist
     output_path.parent.mkdir(exist_ok=True)
 
-    # Crear dummy input
+    # Create dummy input
     dummy_input = tokenizer(
         "test", return_tensors="pt", padding=True, truncation=True, max_length=512
     )
 
-    # Exportar a ONNX
+    # Export to ONNX
     torch.onnx.export(
         model,
         (dummy_input["input_ids"], dummy_input["attention_mask"]),
@@ -42,16 +40,16 @@ def convert_toxicity_model():
 
 
 def convert_pii_model():
-    """Convertir modelo de PII a ONNX."""
-    # Usar un modelo de NER o crear uno personalizado
-    # Por ahora, puedes usar un modelo de clasificación de texto
+    """Convert the PII model to ONNX."""
+    # Use a NER model or create a custom one
+    # For now, you can use a text classification model
     model_name = "microsoft/deberta-v3-base"
     output_path = Path("models/pii_model.onnx")
 
     print(f"Loading model: {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    # Nota: Este es un ejemplo, necesitarías un modelo específico para PII
-    # o entrenar uno personalizado
+    # Note: This is an example, you would need a specific model for PII
+    # or train a custom one
 
     print(f"PII model conversion - placeholder")
     print("For PII detection, consider using:")
@@ -63,5 +61,5 @@ def convert_pii_model():
 if __name__ == "__main__":
     print("Converting models to ONNX...")
     convert_toxicity_model()
-    convert_pii_model()  # Descomentar cuando tengas un modelo de PII
+    convert_pii_model()  # Uncomment when you have a PII model
     print("Done!")
