@@ -215,3 +215,8 @@ firewall/models/*.onnx
 firewall/models/*.onnx.data
 # Ruff
 .ruff_cache/
+
+# Cursor
+.cursor/
+.cursorignore
+.cursorindexingignore
