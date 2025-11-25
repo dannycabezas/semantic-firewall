@@ -6,6 +6,7 @@ from action_orchestrator.orchestrator_service import OrchestratorService
 from core.analyzer import AnalysisDirection, AnalysisResult, FirewallAnalyzer
 from core.backend_proxy import BackendProxyService
 from core.exceptions import BackendError, ContentBlockedException
+from core.request_context import RequestContext
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class FirewallOrchestrator:
         message: str,
         request_id: str,
         analyze_egress: bool = True,
+        context: RequestContext | None = None,
     ) -> dict[str, Any]:
         """
         Processes a complete chat request: ingress + backend + egress.
@@ -54,7 +56,7 @@ class FirewallOrchestrator:
             message: User message
             request_id: Unique request ID
             analyze_egress: If it should analyze the backend response
-
+            context: Request context
         Returns:
             Backend response or block message con métricas
 
@@ -71,6 +73,7 @@ class FirewallOrchestrator:
                 content=message,
                 direction=AnalysisDirection.INGRESS,
                 request_id=request_id,
+                context=context,
             )
 
             # === PROXY TO BACKEND ===
@@ -89,6 +92,7 @@ class FirewallOrchestrator:
                         content=reply,
                         direction=AnalysisDirection.EGRESS,
                         request_id=f"{request_id}_egress",
+                        context=context,
                     )
 
             # === SUCCESS LOG ===
@@ -147,6 +151,7 @@ class FirewallOrchestrator:
         content: str,
         direction: AnalysisDirection,
         request_id: str,
+        context: RequestContext | None = None,
     ) -> AnalysisResult:
         """
         Analyzes content and orchestrates the corresponding actions.
@@ -155,7 +160,7 @@ class FirewallOrchestrator:
             content: Content to analyze
             direction: Analysis direction
             request_id: Request ID
-
+            context: Request context
         Returns:
             AnalysisResult if the content is allowed
 
@@ -167,6 +172,7 @@ class FirewallOrchestrator:
                 content=content,
                 direction=direction,
                 store=False,
+                context=context,
             )
 
             # Orchestrate decision to allow

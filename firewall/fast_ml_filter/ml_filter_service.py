@@ -9,6 +9,7 @@ from fast_ml_filter.ports.pii_detector_port import IPIIDetector
 from fast_ml_filter.ports.prompt_injection_detector_port import \
     IPromptInjectionDetector
 from fast_ml_filter.ports.toxicity_detector_port import IToxicityDetector
+from core.request_context import RequestContext
 
 
 @dataclass
@@ -59,13 +60,13 @@ class MLFilterService:
         self.prompt_injection_detector = prompt_injection_detector
         self.heuristic_detector = heuristic_detector
 
-    def analyze(self, text: str) -> MLSignals:
+    def analyze(self, text: str, context: RequestContext | None = None) -> MLSignals:
         """
         Analyze text with all detectors.
 
         Args:
             text: Text to analyze
-
+            context: Request context
         Returns:
             MLSignals with all detection results
         """
@@ -81,7 +82,7 @@ class MLFilterService:
         toxicity_latency = (time.time() - toxicity_start) * 1000
         
         prompt_injection_start = time.time()
-        prompt_injection_score = self.prompt_injection_detector.detect(text)
+        prompt_injection_score = self.prompt_injection_detector.detect(text, context)
         prompt_injection_latency = (time.time() - prompt_injection_start) * 1000
         
         heuristic_start = time.time()

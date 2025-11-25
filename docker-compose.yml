@@ -26,9 +26,11 @@ services:
       - LOG_LEVEL=info
       - DEBUG=true # Debug mode
       - FIREWALL_POLICY_OPA_URL=http://opa:8181
+      - OLLAMA_BASE_URL=http://ollama:11434  # New Ollama variable
     depends_on:
       - opa
       - backend
+      - ollama  # Add dependency on Ollama
 
   opa:
     image: openpolicyagent/opa:latest
@@ -48,3 +50,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: spg_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  ollama_data:
+    driver: local

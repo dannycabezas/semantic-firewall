@@ -47,7 +47,14 @@ class MLConfig(BaseSettings):
     pii_model: Optional[str] = None
     toxicity_model: Optional[str] = "models/toxicity_model.onnx"
     toxicity_tokenizer: str = "unitary/toxic-bert"
-    prompt_injection_model: str = "ProtectAI/deberta-v3-base-prompt-injection-v2"
+    toxicity_detector_type: str = "detoxify"  # 'detoxify' or 'onnx'
+    detoxify_model_name: str = "original"  # 'original', 'unbiased', or 'multilingual'
+    prompt_injection_model: str = "models/SF_model_v1.onnx"
+    ollama_base_url: str = "http://ollama:11434"
+    ollama_model: str = "nomic-embed-text:v1.5"
+    ollama_embedding_url: str = f"{ollama_base_url}/api/embeddings"
+    prompt_injection_threshold: float = 0.5
+    
 
 
 class HeuristicConfig(BaseSettings):
