@@ -11,8 +11,6 @@ from dependency_injector import containers, providers
 from fast_ml_filter.adapters.deberta_prompt_injection_detector import \
     DeBERTaPromptInjectionDetector
 # Fast ML Filter
-from fast_ml_filter.adapters.onnx_pii_detector import ONNXPIIDetector
-from fast_ml_filter.adapters.onnx_toxicity_detector import ONNXToxicityDetector
 from fast_ml_filter.adapters.presidio_pii_detector import PresidioPIIDetector
 from fast_ml_filter.adapters.regex_heuristic_detector import \
     RegexHeuristicDetector
