@@ -113,12 +113,11 @@ export function useWebSocket(url, onMessage) {
  * @param {string} endpoint - API endpoint path
  * @returns {Promise} - Response data
  */
-export async function fetchAPI(endpoint) {
+export async function fetchAPI(endpoint, options = {}) {
   const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
-  const response = await fetch(`${BASE}${endpoint}`);
+  const response = await fetch(`${BASE}${endpoint}`, options);
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
   return await response.json();
 }
-

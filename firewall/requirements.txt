@@ -18,6 +18,11 @@ presidio-analyzer==2.2.358
 detoxify==0.5.2
 llm-guard==0.3.16
 
+# Benchmark dependencies
+datasets==3.2.0
+aiosqlite==0.20.0
+numpy==1.26.4
+
 # dev dependencies
 ruff==0.14.4
 black==25.11.0
