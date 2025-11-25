@@ -28,6 +28,31 @@ export default function PromptExplorer({ request, onClose }) {
   const scores = request.scores || {}
   const latencies = request.latency_ms || {}
   const preprocessing = request.preprocessing_info || {}
+  const detectorConfig = request.detector_config || {}
+  
+  // Map model names to display names
+  const modelDisplayNames = {
+    presidio: 'Presidio',
+    onnx: 'ONNX',
+    mock: 'Mock',
+    detoxify: 'Detoxify',
+    custom_onnx: 'Custom ONNX',
+    deberta: 'DeBERTa'
+  }
+  
+  // Get model name for each category
+  const getModelName = (category) => {
+    const modelKey = detectorConfig[category]
+    return modelDisplayNames[modelKey] || modelKey || 'Default'
+  }
+  
+  // Map score names to detector config keys
+  const scoreToConfigKey = {
+    prompt_injection: 'prompt_injection',
+    pii: 'pii',
+    toxicity: 'toxicity',
+    heuristic: 'heuristic'
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -98,23 +123,32 @@ export default function PromptExplorer({ request, onClose }) {
           <section className="explorer-section">
             <h3>ML Model Scores</h3>
             <div className="scores-list">
-              {Object.entries(scores).map(([name, score]) => (
-                <div key={name} className="score-item">
-                  <div className="score-header">
-                    <span className="score-name">{name.replace(/_/g, ' ').toUpperCase()}</span>
-                    <span className="score-value">{(score * 100).toFixed(1)}%</span>
+              {Object.entries(scores).map(([name, score]) => {
+                const configKey = scoreToConfigKey[name]
+                const modelName = configKey ? getModelName(configKey) : (name === 'heuristic' ? 'Regex' : 'Default')
+                return (
+                  <div key={name} className="score-item">
+                    <div className="score-header">
+                      <div className="score-name-wrapper">
+                        <span className="score-name">{name.replace(/_/g, ' ').toUpperCase()}</span>
+                        {modelName && (
+                          <span className="score-model-name">({modelName})</span>
+                        )}
+                      </div>
+                      <span className="score-value">{(score * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="score-bar-bg">
+                      <div 
+                        className="score-bar-fill"
+                        style={{ 
+                          width: `${score * 100}%`,
+                          backgroundColor: score > 0.7 ? '#ef4444' : score > 0.4 ? '#f59e0b' : '#10b981'
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="score-bar-bg">
-                    <div 
-                      className="score-bar-fill"
-                      style={{ 
-                        width: `${score * 100}%`,
-                        backgroundColor: score > 0.7 ? '#ef4444' : score > 0.4 ? '#f59e0b' : '#10b981'
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </section>
 

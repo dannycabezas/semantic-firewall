@@ -66,9 +66,50 @@ export default function BenchmarkMetricsView({ runId }) {
     )
   }
 
+  // Map model names to display names
+  const modelDisplayNames = {
+    presidio: 'Presidio',
+    onnx: 'ONNX',
+    mock: 'Mock',
+    detoxify: 'Detoxify',
+    custom_onnx: 'Custom ONNX',
+    deberta: 'DeBERTa'
+  }
+  
+  const getModelDisplayName = (modelKey) => {
+    return modelDisplayNames[modelKey] || modelKey || 'Default'
+  }
+
   return (
     <div className="benchmark-metrics-view">
       <h3>Benchmark Metrics</h3>
+
+      {/* Detector Configuration */}
+      {metrics.detector_config && (
+        <div className="detector-config-section">
+          <h4>Models Used</h4>
+          <div className="detector-config-grid">
+            <div className="detector-config-item">
+              <span className="detector-label">Prompt Injection:</span>
+              <span className="detector-value">
+                {getModelDisplayName(metrics.detector_config.prompt_injection)}
+              </span>
+            </div>
+            <div className="detector-config-item">
+              <span className="detector-label">PII:</span>
+              <span className="detector-value">
+                {getModelDisplayName(metrics.detector_config.pii)}
+              </span>
+            </div>
+            <div className="detector-config-item">
+              <span className="detector-label">Toxicity:</span>
+              <span className="detector-value">
+                {getModelDisplayName(metrics.detector_config.toxicity)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="metrics-summary">

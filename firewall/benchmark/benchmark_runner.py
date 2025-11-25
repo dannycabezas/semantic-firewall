@@ -78,7 +78,7 @@ class BenchmarkRunner:
             "dataset_split": dataset_split,
             "max_samples": max_samples,
             "tenant_id": tenant_id,
-            "model_config": model_config,
+            "detector_config": model_config,  # Store as detector_config for consistency
             "timestamp": datetime.utcnow().isoformat()
         }
         

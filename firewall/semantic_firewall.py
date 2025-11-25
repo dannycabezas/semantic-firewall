@@ -278,7 +278,8 @@ def create_standardized_event(
     decision,
     latency_breakdown: dict,
     total_latency: float,
-    session_id: str = None
+    session_id: str = None,
+    detector_config: Optional[dict] = None
 ) -> dict:
     """
     Create a standardized event dictionary for WebSocket broadcast.
@@ -294,6 +295,7 @@ def create_standardized_event(
         latency_breakdown: Breakdown of latencies
         total_latency: Total latency
         session_id: Optional session ID
+        detector_config: Optional detector configuration with model names
         
     Returns:
         Standardized event dictionary
@@ -351,12 +353,13 @@ def create_standardized_event(
             "normalized_length": len(preprocessed.normalized_text) if preprocessed else 0,
             "word_count": preprocessed.features.get("word_count", 0) if preprocessed else 0,
         } if preprocessed else None,
+        "detector_config": detector_config,
     }
     
     return event
 
 
-def extract_ml_metrics(ml_signals: MLSignals) -> list[DetectorMetrics]:
+def extract_ml_metrics(ml_signals: MLSignals, detector_config: Optional[dict] = None) -> list[DetectorMetrics]:
     """Extract ML detector metrics with thresholds and status."""
     # Thresholds from policies.rego
     thresholds = {
@@ -366,33 +369,56 @@ def extract_ml_metrics(ml_signals: MLSignals) -> list[DetectorMetrics]:
         "heuristic": 1.0
     }
     
+    # Get model names from detector_config or use defaults
+    model_names = {
+        "pii": detector_config.get("pii", "presidio") if detector_config else "presidio",
+        "toxicity": detector_config.get("toxicity", "detoxify") if detector_config else "detoxify",
+        "prompt_injection": detector_config.get("prompt_injection", "custom_onnx") if detector_config else "custom_onnx",
+    }
+    
+    # Map model names to display names
+    model_display_names = {
+        "presidio": "Presidio",
+        "onnx": "ONNX",
+        "mock": "Mock",
+        "detoxify": "Detoxify",
+        "custom_onnx": "Custom ONNX",
+        "deberta": "DeBERTa",
+    }
+    
     metrics = []
     
     if hasattr(ml_signals, 'pii_metrics') and ml_signals.pii_metrics:
+        model_name = model_names.get("pii", "presidio")
         metrics.append(DetectorMetrics(
             name="PII Detector",
             score=ml_signals.pii_metrics.score,
             latency_ms=ml_signals.pii_metrics.latency_ms,
             threshold=thresholds["pii"],
-            status=get_status(ml_signals.pii_metrics.score, thresholds["pii"])
+            status=get_status(ml_signals.pii_metrics.score, thresholds["pii"]),
+            model_name=model_display_names.get(model_name, model_name)
         ))
     
     if hasattr(ml_signals, 'toxicity_metrics') and ml_signals.toxicity_metrics:
+        model_name = model_names.get("toxicity", "detoxify")
         metrics.append(DetectorMetrics(
             name="Toxicity Detector",
             score=ml_signals.toxicity_metrics.score,
             latency_ms=ml_signals.toxicity_metrics.latency_ms,
             threshold=thresholds["toxicity"],
-            status=get_status(ml_signals.toxicity_metrics.score, thresholds["toxicity"])
+            status=get_status(ml_signals.toxicity_metrics.score, thresholds["toxicity"]),
+            model_name=model_display_names.get(model_name, model_name)
         ))
     
     if hasattr(ml_signals, 'prompt_injection_metrics') and ml_signals.prompt_injection_metrics:
+        model_name = model_names.get("prompt_injection", "custom_onnx")
         metrics.append(DetectorMetrics(
             name="Prompt Injection Detector",
             score=ml_signals.prompt_injection_metrics.score,
             latency_ms=ml_signals.prompt_injection_metrics.latency_ms,
             threshold=thresholds["prompt_injection"],
-            status=get_status(ml_signals.prompt_injection_metrics.score, thresholds["prompt_injection"])
+            status=get_status(ml_signals.prompt_injection_metrics.score, thresholds["prompt_injection"]),
+            model_name=model_display_names.get(model_name, model_name)
         ))
     
     if hasattr(ml_signals, 'heuristic_metrics') and ml_signals.heuristic_metrics:
@@ -402,7 +428,8 @@ def extract_ml_metrics(ml_signals: MLSignals) -> list[DetectorMetrics]:
             score=heuristic_score,
             latency_ms=ml_signals.heuristic_metrics.latency_ms,
             threshold=thresholds["heuristic"],
-            status="block" if heuristic_score >= 1.0 else "pass"
+            status="block" if heuristic_score >= 1.0 else "pass",
+            model_name="Regex"
         ))
     
     return metrics
@@ -487,7 +514,7 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
             
             # ML Detector metrics with thresholds and status
             if ml_signals:
-                ml_metrics = extract_ml_metrics(ml_signals)
+                ml_metrics = extract_ml_metrics(ml_signals, detector_config=payload.detector_config)
                 
                 # Policy metrics
                 policy_metrics = PolicyMetrics(
@@ -525,7 +552,8 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
                 decision=decision,
                 latency_breakdown=latency_breakdown,
                 total_latency=total_latency,
-                session_id=None  # TODO: Add session tracking
+                session_id=None,  # TODO: Add session tracking
+                detector_config=payload.detector_config
             )
             
             # Add to metrics manager
@@ -561,7 +589,7 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
             ml_signals = e.ml_signals
             
             # ML Detector metrics
-            ml_metrics = extract_ml_metrics(ml_signals)
+            ml_metrics = extract_ml_metrics(ml_signals, detector_config=payload.detector_config)
             
             # Policy metrics
             policy_metrics = PolicyMetrics(
@@ -598,7 +626,8 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
                 decision=type('obj', (object,), {'matched_rule': e.details.get("matched_rule")})(),
                 latency_breakdown=latency_breakdown,
                 total_latency=total_latency,
-                session_id=None  # TODO: Add session tracking
+                session_id=None,  # TODO: Add session tracking
+                detector_config=payload.detector_config
             )
             
             # Add to metrics manager
@@ -881,14 +910,34 @@ async def get_benchmark_status(run_id: str):
                     detail="Benchmark run not found"
                 )
             
+            # Parse config_snapshot to get detector_config
+            import json
+            config_snapshot = {}
+            if run_info.get("config_snapshot"):
+                try:
+                    config_snapshot = json.loads(run_info["config_snapshot"])
+                except:
+                    config_snapshot = {}
+            
             return {
                 "run_id": run_id,
                 "status": run_info["status"],
                 "total_samples": run_info["total_samples"],
                 "processed_samples": run_info["processed_samples"],
                 "progress_percent": (run_info["processed_samples"] / run_info["total_samples"] * 100) 
-                    if run_info["total_samples"] > 0 else 0
+                    if run_info["total_samples"] > 0 else 0,
+                "detector_config": config_snapshot.get("detector_config")
             }
+        
+        # Add detector_config to status_info if available
+        run_info = await benchmark_database.get_run(run_id)
+        if run_info and run_info.get("config_snapshot"):
+            import json
+            try:
+                config_snapshot = json.loads(run_info["config_snapshot"])
+                status_info["detector_config"] = config_snapshot.get("detector_config")
+            except:
+                pass
         
         return status_info
     except HTTPException:
@@ -1028,6 +1077,16 @@ async def get_benchmark_metrics(run_id: str):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Metrics not found for this run (may still be processing)"
             )
+        
+        # Add detector_config from run info
+        run_info = await benchmark_database.get_run(run_id)
+        if run_info and run_info.get("config_snapshot"):
+            import json
+            try:
+                config_snapshot = json.loads(run_info["config_snapshot"])
+                metrics["detector_config"] = config_snapshot.get("detector_config")
+            except:
+                pass
         
         return metrics
     except HTTPException:

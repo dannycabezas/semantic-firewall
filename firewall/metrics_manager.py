@@ -31,6 +31,7 @@ class RequestEvent:
     latency_ms: Dict[str, float]
     session_id: Optional[str] = None
     preprocessing_info: Optional[Dict[str, int]] = None
+    detector_config: Optional[Dict[str, str]] = None
 
 
 @dataclass
@@ -345,5 +346,6 @@ class MetricsManager:
             "latency_ms": event.latency_ms,
             "session_id": event.session_id,
             "preprocessing_info": event.preprocessing_info,
+            "detector_config": event.detector_config,
         }
 
