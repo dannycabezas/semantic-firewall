@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { fetchAPI } from '../../services/websocket'
+import ModelSelector from '../ModelSelector.jsx'
 
 export default function BenchmarkExecutor({ onBenchmarkStarted }) {
   const [datasetName, setDatasetName] = useState('jackhhao/jailbreak-classification')
   const [datasetSplit, setDatasetSplit] = useState('test')
   const [maxSamples, setMaxSamples] = useState('')
+  const [modelConfig, setModelConfig] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState(null)
 
@@ -22,6 +24,10 @@ export default function BenchmarkExecutor({ onBenchmarkStarted }) {
 
       if (maxSamples && parseInt(maxSamples) > 0) {
         payload.max_samples = parseInt(maxSamples)
+      }
+
+      if (modelConfig) {
+        payload.detector_config = modelConfig
       }
 
       const result = await fetchAPI('/api/benchmarks/start', {
@@ -89,6 +95,8 @@ export default function BenchmarkExecutor({ onBenchmarkStarted }) {
             placeholder="e.g. 100"
           />
         </div>
+
+        <ModelSelector onConfigChange={setModelConfig} />
 
         {error && (
           <div className="error-message">

@@ -106,11 +106,29 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def create_firewall_orchestrator() -> FirewallOrchestrator:
-    """Factory to create the firewall orchestrator."""
+def create_firewall_orchestrator(model_config: Optional[dict] = None) -> FirewallOrchestrator:
+    """
+    Factory to create the firewall orchestrator.
+    
+    Args:
+        model_config: Optional dictionary with model configuration:
+            {
+                "prompt_injection": "custom_onnx" | "deberta",
+                "pii": "presidio" | "onnx" | "mock",
+                "toxicity": "detoxify" | "onnx"
+            }
+            If None, uses default models from container.
+    """
+    # Create ML filter service with specified models or use default
+    if model_config:
+        from fast_ml_filter.ml_filter_service import MLFilterService
+        ml_filter = MLFilterService.create_with_models(model_config=model_config)
+    else:
+        ml_filter = container.ml_filter_service()
+    
     analyzer = FirewallAnalyzer(
         preprocessor=container.preprocessor_service(),
-        ml_filter=container.ml_filter_service(),
+        ml_filter=ml_filter,
         policy_engine=container.policy_service(),
         tenant_id=TENANT_ID,
     )
@@ -198,6 +216,7 @@ class ChatResponse(BaseModel):
 class ChatRequest(BaseModel):
 
     message: str
+    detector_config: Optional[dict[str, str]] = None
 
 
 def generate_request_id() -> str:
@@ -441,8 +460,11 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
     )
 
     try:
+        # Create orchestrator with model config if provided, otherwise use default
+        current_firewall = create_firewall_orchestrator(model_config=payload.detector_config) if payload.detector_config else firewall
+        
         # Process complete request through the orchestrator
-        response = await firewall.process_chat_request(
+        response = await current_firewall.process_chat_request(
             message=payload.message,
             request_id=request_id,
             analyze_egress=False,
@@ -767,6 +789,7 @@ class BenchmarkStartRequest(BaseModel):
     dataset_split: str = "test"
     max_samples: Optional[int] = None
     tenant_id: str = "benchmark"
+    detector_config: Optional[dict[str, str]] = None
 
 
 @app.on_event("startup")
@@ -812,7 +835,8 @@ async def start_benchmark(request: BenchmarkStartRequest):
             dataset_name=request.dataset_name,
             dataset_split=request.dataset_split,
             max_samples=request.max_samples,
-            tenant_id=request.tenant_id
+            tenant_id=request.tenant_id,
+            model_config=request.detector_config
         )
         
         return {

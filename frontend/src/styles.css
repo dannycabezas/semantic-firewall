@@ -1791,3 +1791,63 @@ body {
 .empty-state p {
   margin: 0.5rem 0;
 }
+
+/* ========================================
+   Model Selector
+   ======================================== */
+
+.model-selector {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.model-selector h4 {
+  margin: 0 0 1rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.model-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.model-selector-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.model-selector-item label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.model-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.375rem;
+  padding: 0.5rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.model-select:hover {
+  border-color: var(--accent-blue);
+}
+
+.model-select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}

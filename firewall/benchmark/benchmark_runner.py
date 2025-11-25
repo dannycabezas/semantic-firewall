@@ -39,7 +39,8 @@ class BenchmarkRunner:
         dataset_name: str,
         dataset_split: str = "test",
         max_samples: Optional[int] = None,
-        tenant_id: str = "benchmark"
+        tenant_id: str = "benchmark",
+        model_config: Optional[Dict[str, str]] = None
     ) -> str:
         """
         Start a new benchmark run.
@@ -77,6 +78,7 @@ class BenchmarkRunner:
             "dataset_split": dataset_split,
             "max_samples": max_samples,
             "tenant_id": tenant_id,
+            "model_config": model_config,
             "timestamp": datetime.utcnow().isoformat()
         }
         
@@ -94,12 +96,13 @@ class BenchmarkRunner:
             "status": "running",
             "total_samples": len(samples),
             "processed_samples": 0,
-            "start_time": time.time()
+            "start_time": time.time(),
+            "model_config": model_config
         }
         self.cancel_flags[run_id] = False
         
         # Run benchmark in background
-        asyncio.create_task(self._execute_benchmark(run_id, samples, tenant_id))
+        asyncio.create_task(self._execute_benchmark(run_id, samples, tenant_id, model_config))
         
         return run_id
     
@@ -107,9 +110,43 @@ class BenchmarkRunner:
         self,
         run_id: str,
         samples: list[DatasetSample],
-        tenant_id: str
+        tenant_id: str,
+        model_config: Optional[Dict[str, str]] = None
     ):
         """Execute the benchmark processing."""
+        # Create orchestrator with model config if provided
+        if model_config:
+            from container import FirewallContainer
+            from core.analyzer import FirewallAnalyzer
+            from core.backend_proxy import BackendProxyService
+            import os
+            
+            container = FirewallContainer()
+            BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
+            TENANT_ID = os.getenv("TENANT_ID", "default")
+            
+            # Create ML filter service with specified models
+            from fast_ml_filter.ml_filter_service import MLFilterService
+            ml_filter = MLFilterService.create_with_models(model_config=model_config)
+            
+            analyzer = FirewallAnalyzer(
+                preprocessor=container.preprocessor_service(),
+                ml_filter=ml_filter,
+                policy_engine=container.policy_service(),
+                tenant_id=TENANT_ID,
+            )
+            
+            proxy = BackendProxyService(backend_url=BACKEND_URL, timeout=30.0)
+            orchestrator_service = container.orchestrator_service()
+            
+            benchmark_orchestrator = FirewallOrchestrator(
+                analyzer=analyzer,
+                proxy=proxy,
+                orchestrator=orchestrator_service,
+            )
+        else:
+            benchmark_orchestrator = self.orchestrator
+        
         results = []
         
         try:
@@ -121,7 +158,7 @@ class BenchmarkRunner:
                     break
                 
                 # Process sample through firewall
-                result = await self._process_sample(run_id, sample, tenant_id)
+                result = await self._process_sample(run_id, sample, tenant_id, benchmark_orchestrator)
                 results.append(result)
                 
                 # Update progress
@@ -150,7 +187,8 @@ class BenchmarkRunner:
         self,
         run_id: str,
         sample: DatasetSample,
-        tenant_id: str
+        tenant_id: str,
+        orchestrator: Optional[FirewallOrchestrator] = None
     ) -> Dict[str, Any]:
         """Process a single sample through the firewall."""
         start_time = time.time()
@@ -170,8 +208,11 @@ class BenchmarkRunner:
         )
         
         try:
+            # Use provided orchestrator or fallback to default
+            current_orchestrator = orchestrator or self.orchestrator
+            
             # Run through firewall orchestrator
-            result = await self.orchestrator.process_chat_request(
+            result = await current_orchestrator.process_chat_request(
                 message=sample.prompt,
                 request_id=f"benchmark-{run_id}-{sample.index}",
                 analyze_egress=False,
