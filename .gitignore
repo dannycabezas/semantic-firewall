@@ -209,8 +209,8 @@ __marimo__/
 # mac osx
 .DS_Store
 
-# Modelos ONNX (pueden ser grandes)
-firewall/models/*.onnx
+# ONNX Models (can be large) 
+firewall/models/toxicity_model.onnx
 !firewall/models/.gitkeep
 firewall/models/*.onnx.data
 # Ruff

@@ -12,10 +12,12 @@ from core.exceptions import (BackendError, ContentBlockedException,
                              FirewallException)
 from core.orchestrator import FirewallOrchestrator
 from fast_ml_filter.ml_filter_service import MLSignals
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from metrics_manager import MetricsManager, RequestEvent
 from pydantic import BaseModel
+from core.request_context import RequestContext
+
 
 DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
 if DEBUG_MODE:
@@ -381,7 +383,7 @@ def extract_ml_metrics(ml_signals: MLSignals) -> list[DetectorMetrics]:
 
 # === ENDPOINTS ===
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
+async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
     """
     Endpoint principal of chat with firewall integrated.
 
@@ -401,10 +403,34 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         HTTPException: En caso de error
     """
     import time
+
+    # TODO: For now we are using hardcoded values, we need to get them from the request 
+    # header and calculate the aggregated values
     
     request_id = generate_request_id()
+    user_id = request.headers.get("X-User-ID") or "96424373-aa08-44ae-98ff-9d63e2981663"
+    session_id = request.headers.get("X-Session-ID") or "a1e423e8-8486-4309-a660-fdf5b3d55ae9"
+    device = request.headers.get("User-Agent", "Unknown")
+    temperature = request.headers.get("X-Temperature", 0.5)
+    max_tokens = request.headers.get("X-Max-Tokens", 20)
+    turn_count = request.headers.get("X-Turn-Count", 1)
+    rate_limit = request.headers.get("X-Rate-Limit", 0)
+
     request_start_time = time.time()
     logger.info(f"[{request_id}] New chat request: {payload.message[:50]}...")
+
+    context = RequestContext(
+        request_id=request_id,
+        user_id=user_id,
+        session_id=session_id,
+        tenant_id=TENANT_ID,
+        endpoint="/api/chat",
+        device=device,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        turn_count=turn_count,
+        rate_limit_remaining=rate_limit,
+    )
 
     try:
         # Process complete request through the orchestrator
@@ -412,6 +438,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             message=payload.message,
             request_id=request_id,
             analyze_egress=False,
+            context=context,
         )
         
         total_latency = (time.time() - request_start_time) * 1000

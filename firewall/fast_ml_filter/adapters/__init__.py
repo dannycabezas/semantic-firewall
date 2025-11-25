@@ -5,6 +5,9 @@ from fast_ml_filter.adapters.onnx_pii_detector import ONNXPIIDetector
 from fast_ml_filter.adapters.onnx_toxicity_detector import ONNXToxicityDetector
 from fast_ml_filter.adapters.regex_heuristic_detector import \
     RegexHeuristicDetector
+from fast_ml_filter.adapters.detoxify_toxicity_detector import DetoxifyToxicityDetector
+from fast_ml_filter.adapters.custom_onnx_prompt_injection_detector import \
+    CustomONNXPromptInjectionDetector
 
 __all__ = [
     "ONNXPIIDetector",
@@ -12,4 +15,6 @@ __all__ = [
     "RegexHeuristicDetector",
     "MockPIIDetector",
     "PresidioPIIDetector",
+    "DetoxifyToxicityDetector",
+    "CustomONNXPromptInjectionDetector",
 ]

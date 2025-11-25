@@ -6,6 +6,7 @@ from core.exceptions import ContentBlockedException
 from fast_ml_filter.ml_filter_service import MLSignals
 from policy_engine.policy_service import PolicyDecision
 from preprocessor.preprocessor_service import PreprocessedData
+from core.request_context import RequestContext
 
 
 class AnalysisDirection(Enum):
@@ -80,6 +81,7 @@ class FirewallAnalyzer:
         content: str,
         direction: AnalysisDirection = AnalysisDirection.INGRESS,
         store: bool = False,
+        context: RequestContext | None = None,
     ) -> AnalysisResult:
         """
         Analyze content and return the complete result.
@@ -88,7 +90,7 @@ class FirewallAnalyzer:
             content: Content to analyze
             direction: Analysis direction (ingress/egress)
             store: If it should store the vectors/features
-
+            context: Request context
         Returns:
             AnalysisResult with all the information of the analysis
 
@@ -103,7 +105,7 @@ class FirewallAnalyzer:
         preprocessed = self._preprocessor.preprocess(content, store=store)
 
         # 2. Analyze with ML
-        ml_signals = self._ml_filter.analyze(preprocessed.normalized_text)
+        ml_signals = self._ml_filter.analyze(preprocessed.normalized_text, context)
 
         # 3. Evaluate policies
         decision = self._policy_engine.evaluate(

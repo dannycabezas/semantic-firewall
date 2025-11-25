@@ -18,6 +18,8 @@ ml:
   toxicity_model: "models/toxicity_model.onnx"
   # Opcional: paths para tokenizers
   toxicity_tokenizer: "unitary/toxic-bert"  # O path local
+  toxicity_detector_type: "detoxify"  # Change to 'detoxify' or 'onnx'
+  detoxify_model_name: "original"  # 'original', 'unbiased', o 'multilingual'
 
 # Heuristic detector configuration
 heuristic:

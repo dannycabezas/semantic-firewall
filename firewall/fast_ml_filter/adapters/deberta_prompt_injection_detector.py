@@ -1,5 +1,6 @@
 from fast_ml_filter.ports.prompt_injection_detector_port import \
     IPromptInjectionDetector
+from core.request_context import RequestContext
 
 
 class DeBERTaPromptInjectionDetector(IPromptInjectionDetector):
@@ -53,13 +54,13 @@ class DeBERTaPromptInjectionDetector(IPromptInjectionDetector):
                 print(f"Failed to load DeBERTa model: {e}. Using fallback.")
                 self._use_model = False
 
-    def detect(self, text: str) -> float:
+    def detect(self, text: str, context: RequestContext | None = None) -> float:
         """
         Detect prompt injection in text.
 
         Args:
             text: Text to analyze
-
+            context: Request context
         Returns:
             Prompt injection score between 0.0 and 1.0
         """

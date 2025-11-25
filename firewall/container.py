@@ -11,14 +11,15 @@ from dependency_injector import containers, providers
 from fast_ml_filter.adapters.deberta_prompt_injection_detector import \
     DeBERTaPromptInjectionDetector
 # Fast ML Filter
-from fast_ml_filter.adapters.onnx_pii_detector import ONNXPIIDetector
-from fast_ml_filter.adapters.onnx_toxicity_detector import ONNXToxicityDetector
 from fast_ml_filter.adapters.presidio_pii_detector import PresidioPIIDetector
 from fast_ml_filter.adapters.regex_heuristic_detector import \
     RegexHeuristicDetector
 from fast_ml_filter.ml_filter_service import MLFilterService
 from policy_engine.adapters.memory_tenant_context import MemoryTenantContext
 from policy_engine.adapters.opa_evaluator import OPAEvaluator
+from fast_ml_filter.adapters.detoxify_toxicity_detector import DetoxifyToxicityDetector
+from fast_ml_filter.adapters.custom_onnx_prompt_injection_detector import \
+    CustomONNXPromptInjectionDetector
 # Policy Engine
 from policy_engine.adapters.rego_policy_loader import RegoPolicyLoader
 from policy_engine.policy_service import PolicyService
@@ -72,14 +73,17 @@ class FirewallContainer(containers.DeclarativeContainer):
     )
 
     toxicity_detector = providers.Singleton(
-        ONNXToxicityDetector, model_path=config.provided.ml.toxicity_model
+        DetoxifyToxicityDetector,
+        model_name=config.provided.ml.detoxify_model_name,
     )
 
     prompt_injection_detector = providers.Singleton(
-        DeBERTaPromptInjectionDetector,
-        model_name=config.provided.ml.prompt_injection_model,
+        CustomONNXPromptInjectionDetector,
+        model_path=config.provided.ml.prompt_injection_model,
+        ollama_base_url=config.provided.ml.ollama_base_url,
+        ollama_model=config.provided.ml.ollama_model,
+        threshold=config.provided.ml.prompt_injection_threshold,
     )
-
     heuristic_detector = providers.Factory(
         RegexHeuristicDetector, rules_path=config.provided.heuristic.rules_path
     )
