@@ -772,6 +772,60 @@ async def get_available_models():
         )
 
 
+@app.get("/api/models/cache")
+async def get_models_cache_status():
+    """
+    Get status of the detector cache.
+    
+    Returns:
+        Dictionary with:
+        - cached_detectors: List of detector keys currently in cache
+        - cache_size: Number of detectors in cache
+        - cache_enabled: Whether caching is enabled
+    """
+    try:
+        from fast_ml_filter.detector_factory import DetectorFactory
+        
+        # Create a factory instance to access cache
+        factory = DetectorFactory()
+        cache_stats = factory.get_cache_stats()
+        
+        return cache_stats
+    except Exception as e:
+        logger.error(f"Error getting cache status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving cache status"
+        )
+
+
+@app.post("/api/models/cache/clear")
+async def clear_models_cache():
+    """
+    Clear the detector cache.
+    
+    Returns:
+        Number of detectors removed from cache
+    """
+    try:
+        from fast_ml_filter.detector_factory import DetectorFactory
+        
+        # Create a factory instance to access cache
+        factory = DetectorFactory()
+        count = factory.clear_cache()
+        
+        return {
+            "message": f"Cache cleared successfully",
+            "detectors_removed": count
+        }
+    except Exception as e:
+        logger.error(f"Error clearing cache: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error clearing cache"
+        )
+
+
 @app.get("/api/recent-requests")
 async def get_recent_requests(limit: int = 50):
     """

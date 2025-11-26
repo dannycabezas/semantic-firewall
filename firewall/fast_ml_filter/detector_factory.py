@@ -1,6 +1,8 @@
 """Factory for creating detector instances dynamically."""
 
-from typing import Dict, Optional
+import logging
+import threading
+from typing import Any, Dict, Optional
 from config import FirewallConfig
 from fast_ml_filter.ports.pii_detector_port import IPIIDetector
 from fast_ml_filter.ports.toxicity_detector_port import IToxicityDetector
@@ -18,7 +20,19 @@ from fast_ml_filter.adapters.regex_heuristic_detector import RegexHeuristicDetec
 
 
 class DetectorFactory:
-    """Factory for creating detector instances based on model names."""
+    """
+    Factory for creating detector instances based on model names.
+    
+    This is a singleton class with shared cache across all instances to prevent
+    reloading models when multiple factories are created.
+    """
+    
+    # Singleton instance
+    _instance = None
+    _lock = threading.Lock()
+    
+    # Shared cache across all instances (class-level)
+    _shared_detector_cache: Dict[str, Any] = {}
     
     # Registry of available detectors by category
     PROMPT_INJECTION_DETECTORS: Dict[str, type] = {
@@ -52,24 +66,36 @@ class DetectorFactory:
             config: Firewall configuration (uses default if not provided)
         """
         self.config = config or FirewallConfig()
+        
+        # Use shared cache at class level
+        self._detector_cache = DetectorFactory._shared_detector_cache
+        self._cache_logger = logging.getLogger(f"{__name__}.cache")
     
     def create_prompt_injection_detector(
         self, 
         model_name: Optional[str] = None
     ) -> IPromptInjectionDetector:
         """
-        Create a prompt injection detector instance.
+        Create a prompt injection detector instance with caching.
         
         Args:
             model_name: Name of the model to use (default: "custom_onnx")
             
         Returns:
-            IPromptInjectionDetector instance
+            IPromptInjectionDetector instance (cached if previously created)
             
         Raises:
             ValueError: If model_name is not recognized
         """
         model_name = model_name or self.DEFAULT_PROMPT_INJECTION
+        
+        # Check cache first
+        cache_key = f"pi_{model_name}"
+        if cache_key in self._detector_cache:
+            self._cache_logger.info(f"✓ Cache HIT: {cache_key}")
+            return self._detector_cache[cache_key]
+        
+        self._cache_logger.info(f"⚠ Cache MISS: Creating {cache_key}")
         
         if model_name not in self.PROMPT_INJECTION_DETECTORS:
             raise ValueError(
@@ -81,41 +107,55 @@ class DetectorFactory:
         
         # Create instance with appropriate parameters
         if model_name == "custom_onnx":
-            return detector_class(
+            detector = detector_class(
                 model_path=self.config.ml.prompt_injection_model,
                 ollama_base_url=self.config.ml.ollama_base_url,
                 ollama_model=self.config.ml.ollama_model,
                 threshold=self.config.ml.prompt_injection_threshold,
             )
         elif model_name == "deberta":
-            return detector_class(
+            detector = detector_class(
                 model_name="ProtectAI/deberta-v3-base-prompt-injection-v2"
             )
         elif model_name == "llama_guard_86m":
-            return detector_class(
+            detector = detector_class(
                 model_name="meta-llama/Llama-Prompt-Guard-2-86M"
             )
         elif model_name == "llama_guard_22m":
-            return detector_class(
+            detector = detector_class(
                 model_name="meta-llama/Llama-Prompt-Guard-2-22M"
             )
         else:
-            return detector_class()
+            detector = detector_class()
+        
+        # Cache the detector instance
+        self._detector_cache[cache_key] = detector
+        self._cache_logger.info(f"✓ Cached: {cache_key}")
+        
+        return detector
     
     def create_pii_detector(self, model_name: Optional[str] = None) -> IPIIDetector:
         """
-        Create a PII detector instance.
+        Create a PII detector instance with caching.
         
         Args:
             model_name: Name of the model to use (default: "presidio")
             
         Returns:
-            IPIIDetector instance
+            IPIIDetector instance (cached if previously created)
             
         Raises:
             ValueError: If model_name is not recognized
         """
         model_name = model_name or self.DEFAULT_PII
+        
+        # Check cache first
+        cache_key = f"pii_{model_name}"
+        if cache_key in self._detector_cache:
+            self._cache_logger.info(f"✓ Cache HIT: {cache_key}")
+            return self._detector_cache[cache_key]
+        
+        self._cache_logger.info(f"⚠ Cache MISS: Creating {cache_key}")
         
         if model_name not in self.PII_DETECTORS:
             raise ValueError(
@@ -127,29 +167,43 @@ class DetectorFactory:
         
         # Create instance with appropriate parameters
         if model_name == "onnx":
-            return detector_class(model_path=self.config.ml.pii_model)
+            detector = detector_class(model_path=self.config.ml.pii_model)
         elif model_name == "mock":
-            return detector_class(fixed_score=0.0)
+            detector = detector_class(fixed_score=0.0)
         else:  # presidio
-            return detector_class()
+            detector = detector_class()
+        
+        # Cache the detector instance
+        self._detector_cache[cache_key] = detector
+        self._cache_logger.info(f"✓ Cached: {cache_key}")
+        
+        return detector
     
     def create_toxicity_detector(
         self, 
         model_name: Optional[str] = None
     ) -> IToxicityDetector:
         """
-        Create a toxicity detector instance.
+        Create a toxicity detector instance with caching.
         
         Args:
             model_name: Name of the model to use (default: "detoxify")
             
         Returns:
-            IToxicityDetector instance
+            IToxicityDetector instance (cached if previously created)
             
         Raises:
             ValueError: If model_name is not recognized
         """
         model_name = model_name or self.DEFAULT_TOXICITY
+        
+        # Check cache first
+        cache_key = f"toxicity_{model_name}"
+        if cache_key in self._detector_cache:
+            self._cache_logger.info(f"✓ Cache HIT: {cache_key}")
+            return self._detector_cache[cache_key]
+        
+        self._cache_logger.info(f"⚠ Cache MISS: Creating {cache_key}")
         
         if model_name not in self.TOXICITY_DETECTORS:
             raise ValueError(
@@ -161,14 +215,20 @@ class DetectorFactory:
         
         # Create instance with appropriate parameters
         if model_name == "detoxify":
-            return detector_class(model_name=self.config.ml.detoxify_model_name)
+            detector = detector_class(model_name=self.config.ml.detoxify_model_name)
         elif model_name == "onnx":
-            return detector_class(
+            detector = detector_class(
                 model_path=self.config.ml.toxicity_model,
                 tokenizer_path=self.config.ml.toxicity_tokenizer
             )
         else:
-            return detector_class()
+            detector = detector_class()
+        
+        # Cache the detector instance
+        self._detector_cache[cache_key] = detector
+        self._cache_logger.info(f"✓ Cached: {cache_key}")
+        
+        return detector
     
     def create_heuristic_detector(self) -> IHeuristicDetector:
         """
@@ -206,4 +266,29 @@ class DetectorFactory:
             "pii": cls.DEFAULT_PII,
             "toxicity": cls.DEFAULT_TOXICITY,
         }
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about the detector cache.
+        
+        Returns:
+            Dictionary with cache statistics
+        """
+        return {
+            "cached_detectors": list(self._detector_cache.keys()),
+            "cache_size": len(self._detector_cache),
+            "cache_enabled": True
+        }
+    
+    def clear_cache(self) -> int:
+        """
+        Clear the detector cache.
+        
+        Returns:
+            Number of detectors removed from cache
+        """
+        count = len(self._detector_cache)
+        self._detector_cache.clear()
+        self._cache_logger.info(f"Cache cleared: {count} detectors removed")
+        return count
 
