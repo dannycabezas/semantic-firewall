@@ -27,6 +27,11 @@ services:
       - DEBUG=true # Debug mode
       - FIREWALL_POLICY_OPA_URL=http://opa:8181
       - OLLAMA_BASE_URL=http://ollama:11434  # New Ollama variable
+      - BENCHMARK_DB_PATH=/data/benchmarks.db  # Benchmark database
+      - HF_HOME=/data/huggingface
+      - HF_DATASETS_CACHE=/data/huggingface/datasets
+    volumes:
+      - benchmark_data:/data
     depends_on:
       - opa
       - backend
@@ -69,4 +74,6 @@ services:
 
 volumes:
   ollama_data:
+    driver: local
+  benchmark_data:
     driver: local

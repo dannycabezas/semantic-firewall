@@ -3,7 +3,7 @@ import logging
 import os
 import uuid
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from container import FirewallContainer
 from core.analyzer import FirewallAnalyzer
@@ -17,6 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from metrics_manager import MetricsManager, RequestEvent
 from pydantic import BaseModel
 from core.request_context import RequestContext
+from benchmark.database import BenchmarkDatabase
+from benchmark.benchmark_runner import BenchmarkRunner
+from benchmark.dataset_loader import DatasetLoader
 
 
 DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
@@ -39,6 +42,11 @@ metrics_manager = MetricsManager(max_requests=500)
 
 # Event queue for WebSocket broadcasts
 event_queue: asyncio.Queue = None
+
+# Initialize Benchmark components
+BENCHMARK_DB_PATH = os.getenv("BENCHMARK_DB_PATH", "benchmarks.db")
+benchmark_database: Optional[BenchmarkDatabase] = None
+benchmark_runner: Optional[BenchmarkRunner] = None
 
 
 class ConnectionManager:
@@ -98,11 +106,29 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def create_firewall_orchestrator() -> FirewallOrchestrator:
-    """Factory to create the firewall orchestrator."""
+def create_firewall_orchestrator(model_config: Optional[dict] = None) -> FirewallOrchestrator:
+    """
+    Factory to create the firewall orchestrator.
+    
+    Args:
+        model_config: Optional dictionary with model configuration:
+            {
+                "prompt_injection": "custom_onnx" | "deberta",
+                "pii": "presidio" | "onnx" | "mock",
+                "toxicity": "detoxify" | "onnx"
+            }
+            If None, uses default models from container.
+    """
+    # Create ML filter service with specified models or use default
+    if model_config:
+        from fast_ml_filter.ml_filter_service import MLFilterService
+        ml_filter = MLFilterService.create_with_models(model_config=model_config)
+    else:
+        ml_filter = container.ml_filter_service()
+    
     analyzer = FirewallAnalyzer(
         preprocessor=container.preprocessor_service(),
-        ml_filter=container.ml_filter_service(),
+        ml_filter=ml_filter,
         policy_engine=container.policy_service(),
         tenant_id=TENANT_ID,
     )
@@ -190,6 +216,7 @@ class ChatResponse(BaseModel):
 class ChatRequest(BaseModel):
 
     message: str
+    detector_config: Optional[dict[str, str]] = None
 
 
 def generate_request_id() -> str:
@@ -251,7 +278,8 @@ def create_standardized_event(
     decision,
     latency_breakdown: dict,
     total_latency: float,
-    session_id: str = None
+    session_id: str = None,
+    detector_config: Optional[dict] = None
 ) -> dict:
     """
     Create a standardized event dictionary for WebSocket broadcast.
@@ -267,6 +295,7 @@ def create_standardized_event(
         latency_breakdown: Breakdown of latencies
         total_latency: Total latency
         session_id: Optional session ID
+        detector_config: Optional detector configuration with model names
         
     Returns:
         Standardized event dictionary
@@ -324,12 +353,13 @@ def create_standardized_event(
             "normalized_length": len(preprocessed.normalized_text) if preprocessed else 0,
             "word_count": preprocessed.features.get("word_count", 0) if preprocessed else 0,
         } if preprocessed else None,
+        "detector_config": detector_config,
     }
     
     return event
 
 
-def extract_ml_metrics(ml_signals: MLSignals) -> list[DetectorMetrics]:
+def extract_ml_metrics(ml_signals: MLSignals, detector_config: Optional[dict] = None) -> list[DetectorMetrics]:
     """Extract ML detector metrics with thresholds and status."""
     # Thresholds from policies.rego
     thresholds = {
@@ -339,33 +369,56 @@ def extract_ml_metrics(ml_signals: MLSignals) -> list[DetectorMetrics]:
         "heuristic": 1.0
     }
     
+    # Get model names from detector_config or use defaults
+    model_names = {
+        "pii": detector_config.get("pii", "presidio") if detector_config else "presidio",
+        "toxicity": detector_config.get("toxicity", "detoxify") if detector_config else "detoxify",
+        "prompt_injection": detector_config.get("prompt_injection", "custom_onnx") if detector_config else "custom_onnx",
+    }
+    
+    # Map model names to display names
+    model_display_names = {
+        "presidio": "Presidio",
+        "onnx": "ONNX",
+        "mock": "Mock",
+        "detoxify": "Detoxify",
+        "custom_onnx": "Custom ONNX",
+        "deberta": "DeBERTa",
+    }
+    
     metrics = []
     
     if hasattr(ml_signals, 'pii_metrics') and ml_signals.pii_metrics:
+        model_name = model_names.get("pii", "presidio")
         metrics.append(DetectorMetrics(
             name="PII Detector",
             score=ml_signals.pii_metrics.score,
             latency_ms=ml_signals.pii_metrics.latency_ms,
             threshold=thresholds["pii"],
-            status=get_status(ml_signals.pii_metrics.score, thresholds["pii"])
+            status=get_status(ml_signals.pii_metrics.score, thresholds["pii"]),
+            model_name=model_display_names.get(model_name, model_name)
         ))
     
     if hasattr(ml_signals, 'toxicity_metrics') and ml_signals.toxicity_metrics:
+        model_name = model_names.get("toxicity", "detoxify")
         metrics.append(DetectorMetrics(
             name="Toxicity Detector",
             score=ml_signals.toxicity_metrics.score,
             latency_ms=ml_signals.toxicity_metrics.latency_ms,
             threshold=thresholds["toxicity"],
-            status=get_status(ml_signals.toxicity_metrics.score, thresholds["toxicity"])
+            status=get_status(ml_signals.toxicity_metrics.score, thresholds["toxicity"]),
+            model_name=model_display_names.get(model_name, model_name)
         ))
     
     if hasattr(ml_signals, 'prompt_injection_metrics') and ml_signals.prompt_injection_metrics:
+        model_name = model_names.get("prompt_injection", "custom_onnx")
         metrics.append(DetectorMetrics(
             name="Prompt Injection Detector",
             score=ml_signals.prompt_injection_metrics.score,
             latency_ms=ml_signals.prompt_injection_metrics.latency_ms,
             threshold=thresholds["prompt_injection"],
-            status=get_status(ml_signals.prompt_injection_metrics.score, thresholds["prompt_injection"])
+            status=get_status(ml_signals.prompt_injection_metrics.score, thresholds["prompt_injection"]),
+            model_name=model_display_names.get(model_name, model_name)
         ))
     
     if hasattr(ml_signals, 'heuristic_metrics') and ml_signals.heuristic_metrics:
@@ -375,7 +428,8 @@ def extract_ml_metrics(ml_signals: MLSignals) -> list[DetectorMetrics]:
             score=heuristic_score,
             latency_ms=ml_signals.heuristic_metrics.latency_ms,
             threshold=thresholds["heuristic"],
-            status="block" if heuristic_score >= 1.0 else "pass"
+            status="block" if heuristic_score >= 1.0 else "pass",
+            model_name="Regex"
         ))
     
     return metrics
@@ -433,8 +487,11 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
     )
 
     try:
+        # Create orchestrator with model config if provided, otherwise use default
+        current_firewall = create_firewall_orchestrator(model_config=payload.detector_config) if payload.detector_config else firewall
+        
         # Process complete request through the orchestrator
-        response = await firewall.process_chat_request(
+        response = await current_firewall.process_chat_request(
             message=payload.message,
             request_id=request_id,
             analyze_egress=False,
@@ -457,7 +514,7 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
             
             # ML Detector metrics with thresholds and status
             if ml_signals:
-                ml_metrics = extract_ml_metrics(ml_signals)
+                ml_metrics = extract_ml_metrics(ml_signals, detector_config=payload.detector_config)
                 
                 # Policy metrics
                 policy_metrics = PolicyMetrics(
@@ -495,7 +552,8 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
                 decision=decision,
                 latency_breakdown=latency_breakdown,
                 total_latency=total_latency,
-                session_id=None  # TODO: Add session tracking
+                session_id=None,  # TODO: Add session tracking
+                detector_config=payload.detector_config
             )
             
             # Add to metrics manager
@@ -531,7 +589,7 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
             ml_signals = e.ml_signals
             
             # ML Detector metrics
-            ml_metrics = extract_ml_metrics(ml_signals)
+            ml_metrics = extract_ml_metrics(ml_signals, detector_config=payload.detector_config)
             
             # Policy metrics
             policy_metrics = PolicyMetrics(
@@ -568,7 +626,8 @@ async def chat_endpoint(payload: ChatRequest, request: Request) -> ChatResponse:
                 decision=type('obj', (object,), {'matched_rule': e.details.get("matched_rule")})(),
                 latency_breakdown=latency_breakdown,
                 total_latency=total_latency,
-                session_id=None  # TODO: Add session tracking
+                session_id=None,  # TODO: Add session tracking
+                detector_config=payload.detector_config
             )
             
             # Add to metrics manager
@@ -748,4 +807,341 @@ async def get_temporal_breakdown(minutes: int = 10):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error retrieving temporal breakdown"
+        )
+
+
+# ==================== Benchmark Endpoints ====================
+
+class BenchmarkStartRequest(BaseModel):
+    """Request to start a new benchmark."""
+    dataset_name: str
+    dataset_split: str = "test"
+    max_samples: Optional[int] = None
+    tenant_id: str = "benchmark"
+    detector_config: Optional[dict[str, str]] = None
+
+
+@app.on_event("startup")
+async def initialize_benchmark_system():
+    """Initialize benchmark database and runner on startup."""
+    global benchmark_database, benchmark_runner
+    
+    try:
+        benchmark_database = BenchmarkDatabase(BENCHMARK_DB_PATH)
+        await benchmark_database.initialize()
+        
+        # Get orchestrator from container
+        #orchestrator = container.orchestrator()
+        benchmark_runner = BenchmarkRunner(firewall, benchmark_database)
+        
+        logger.info(f"Benchmark system initialized with database at {BENCHMARK_DB_PATH}")
+    except Exception as e:
+        logger.error(f"Failed to initialize benchmark system: {e}")
+        # Don't fail the entire app if benchmarks fail to initialize
+        benchmark_database = None
+        benchmark_runner = None
+
+
+@app.post("/api/benchmarks/start")
+async def start_benchmark(request: BenchmarkStartRequest):
+    """
+    Start a new benchmark run.
+    
+    Args:
+        request: Benchmark configuration
+        
+    Returns:
+        Benchmark run ID and initial status
+    """
+    if not benchmark_runner:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Benchmark system not initialized"
+        )
+    
+    try:
+        run_id = await benchmark_runner.start_benchmark(
+            dataset_name=request.dataset_name,
+            dataset_split=request.dataset_split,
+            max_samples=request.max_samples,
+            tenant_id=request.tenant_id,
+            model_config=request.detector_config
+        )
+        
+        return {
+            "run_id": run_id,
+            "status": "running",
+            "message": "Benchmark started successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error starting benchmark: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start benchmark: {str(e)}"
+        )
+
+
+@app.get("/api/benchmarks/status/{run_id}")
+async def get_benchmark_status(run_id: str):
+    """
+    Get the current status of a benchmark run.
+    
+    Args:
+        run_id: Benchmark run identifier
+        
+    Returns:
+        Current status and progress information
+    """
+    if not benchmark_runner:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Benchmark system not initialized"
+        )
+    
+    try:
+        status_info = benchmark_runner.get_status(run_id)
+        
+        if not status_info:
+            # Check database for completed/failed runs
+            run_info = await benchmark_database.get_run(run_id)
+            if not run_info:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Benchmark run not found"
+                )
+            
+            # Parse config_snapshot to get detector_config
+            import json
+            config_snapshot = {}
+            if run_info.get("config_snapshot"):
+                try:
+                    config_snapshot = json.loads(run_info["config_snapshot"])
+                except:
+                    config_snapshot = {}
+            
+            return {
+                "run_id": run_id,
+                "status": run_info["status"],
+                "total_samples": run_info["total_samples"],
+                "processed_samples": run_info["processed_samples"],
+                "progress_percent": (run_info["processed_samples"] / run_info["total_samples"] * 100) 
+                    if run_info["total_samples"] > 0 else 0,
+                "detector_config": config_snapshot.get("detector_config")
+            }
+        
+        # Add detector_config to status_info if available
+        run_info = await benchmark_database.get_run(run_id)
+        if run_info and run_info.get("config_snapshot"):
+            import json
+            try:
+                config_snapshot = json.loads(run_info["config_snapshot"])
+                status_info["detector_config"] = config_snapshot.get("detector_config")
+            except:
+                pass
+        
+        return status_info
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting benchmark status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving benchmark status"
+        )
+
+
+@app.post("/api/benchmarks/cancel/{run_id}")
+async def cancel_benchmark(run_id: str):
+    """
+    Cancel a running benchmark.
+    
+    Args:
+        run_id: Benchmark run identifier
+        
+    Returns:
+        Cancellation status
+    """
+    if not benchmark_runner:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Benchmark system not initialized"
+        )
+    
+    try:
+        success = await benchmark_runner.cancel_benchmark(run_id)
+        
+        if success:
+            return {"message": "Benchmark cancelled successfully"}
+        else:
+            return {"message": "Benchmark not found or already completed"}
+    except Exception as e:
+        logger.error(f"Error cancelling benchmark: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error cancelling benchmark"
+        )
+
+
+@app.get("/api/benchmarks/runs")
+async def get_benchmark_runs(limit: int = 50, offset: int = 0):
+    """
+    Get list of all benchmark runs with pagination.
+    
+    Args:
+        limit: Maximum number of runs to return
+        offset: Number of runs to skip
+        
+    Returns:
+        List of benchmark runs
+    """
+    if not benchmark_database:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Benchmark system not initialized"
+        )
+    
+    try:
+        runs = await benchmark_database.get_all_runs(limit=limit, offset=offset)
+        return {"runs": runs, "count": len(runs)}
+    except Exception as e:
+        logger.error(f"Error getting benchmark runs: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving benchmark runs"
+        )
+
+
+@app.get("/api/benchmarks/results/{run_id}")
+async def get_benchmark_results(
+    run_id: str,
+    result_type: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """
+    Get detailed results for a benchmark run.
+    
+    Args:
+        run_id: Benchmark run identifier
+        result_type: Optional filter (TRUE_POSITIVE, FALSE_POSITIVE, TRUE_NEGATIVE, FALSE_NEGATIVE)
+        limit: Maximum number of results to return
+        offset: Number of results to skip
+        
+    Returns:
+        List of benchmark results
+    """
+    if not benchmark_database:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Benchmark system not initialized"
+        )
+    
+    try:
+        results = await benchmark_database.get_results(
+            run_id=run_id,
+            result_type=result_type,
+            limit=limit,
+            offset=offset
+        )
+        return {"results": results, "count": len(results)}
+    except Exception as e:
+        logger.error(f"Error getting benchmark results: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving benchmark results"
+        )
+
+
+@app.get("/api/benchmarks/metrics/{run_id}")
+async def get_benchmark_metrics(run_id: str):
+    """
+    Get calculated metrics for a benchmark run.
+    
+    Args:
+        run_id: Benchmark run identifier
+        
+    Returns:
+        Benchmark metrics including confusion matrix and performance stats
+    """
+    if not benchmark_database:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Benchmark system not initialized"
+        )
+    
+    try:
+        metrics = await benchmark_database.get_metrics(run_id)
+        
+        if not metrics:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Metrics not found for this run (may still be processing)"
+            )
+        
+        # Add detector_config from run info
+        run_info = await benchmark_database.get_run(run_id)
+        if run_info and run_info.get("config_snapshot"):
+            import json
+            try:
+                config_snapshot = json.loads(run_info["config_snapshot"])
+                metrics["detector_config"] = config_snapshot.get("detector_config")
+            except:
+                pass
+        
+        return metrics
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting benchmark metrics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving benchmark metrics"
+        )
+
+
+@app.get("/api/benchmarks/errors/{run_id}")
+async def get_benchmark_errors(run_id: str):
+    """
+    Get detailed error analysis (false positives and false negatives).
+    
+    Args:
+        run_id: Benchmark run identifier
+        
+    Returns:
+        Error analysis with false positives and false negatives
+    """
+    if not benchmark_database:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Benchmark system not initialized"
+        )
+    
+    try:
+        error_analysis = await benchmark_database.get_error_analysis(run_id)
+        return error_analysis
+    except Exception as e:
+        logger.error(f"Error getting benchmark error analysis: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving error analysis"
+        )
+
+
+@app.get("/api/benchmarks/datasets")
+async def get_available_datasets():
+    """
+    Get list of available predefined datasets.
+    
+    Returns:
+        List of datasets with metadata
+    """
+    try:
+        loader = DatasetLoader()
+        datasets = loader.get_available_datasets()
+        return {"datasets": datasets, "count": len(datasets)}
+    except Exception as e:
+        logger.error(f"Error getting available datasets: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving available datasets"
         )

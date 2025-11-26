@@ -2,7 +2,7 @@
 
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fast_ml_filter.ports.heuristic_detector_port import IHeuristicDetector
 from fast_ml_filter.ports.pii_detector_port import IPIIDetector
@@ -10,6 +10,7 @@ from fast_ml_filter.ports.prompt_injection_detector_port import \
     IPromptInjectionDetector
 from fast_ml_filter.ports.toxicity_detector_port import IToxicityDetector
 from core.request_context import RequestContext
+from fast_ml_filter.detector_factory import DetectorFactory
 
 
 @dataclass
@@ -59,6 +60,49 @@ class MLFilterService:
         self.toxicity_detector = toxicity_detector
         self.prompt_injection_detector = prompt_injection_detector
         self.heuristic_detector = heuristic_detector
+
+    @classmethod
+    def create_with_models(
+        cls,
+        model_config: Optional[Dict[str, str]] = None,
+        factory: Optional[DetectorFactory] = None
+    ) -> "MLFilterService":
+        """
+        Factory method to create MLFilterService with specific detector models.
+        
+        Args:
+            model_config: Dictionary with model names for each category:
+                - "prompt_injection": model name (e.g., "custom_onnx", "deberta")
+                - "pii": model name (e.g., "presidio", "onnx", "mock")
+                - "toxicity": model name (e.g., "detoxify", "onnx")
+            factory: DetectorFactory instance (creates new one if not provided)
+            
+        Returns:
+            MLFilterService instance with specified detectors
+        """
+        if factory is None:
+            factory = DetectorFactory()
+        
+        # Extract model names from config or use defaults
+        if model_config is None:
+            model_config = {}
+        
+        prompt_injection_model = model_config.get("prompt_injection")
+        pii_model = model_config.get("pii")
+        toxicity_model = model_config.get("toxicity")
+        
+        # Create detectors
+        pii_detector = factory.create_pii_detector(pii_model)
+        toxicity_detector = factory.create_toxicity_detector(toxicity_model)
+        prompt_injection_detector = factory.create_prompt_injection_detector(prompt_injection_model)
+        heuristic_detector = factory.create_heuristic_detector()
+        
+        return cls(
+            pii_detector=pii_detector,
+            toxicity_detector=toxicity_detector,
+            prompt_injection_detector=prompt_injection_detector,
+            heuristic_detector=heuristic_detector,
+        )
 
     def analyze(self, text: str, context: RequestContext | None = None) -> MLSignals:
         """

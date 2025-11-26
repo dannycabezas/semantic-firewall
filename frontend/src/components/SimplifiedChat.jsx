@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { sendMessage } from '../services/api.js'
+import ModelSelector from './ModelSelector.jsx'
 
 export default function SimplifiedChat() {
   const [input, setInput] = useState('')
@@ -7,6 +8,7 @@ export default function SimplifiedChat() {
     { sender: 'bot', text: 'Hello! I am protected by SPG Semantic Firewall.' }
   ])
   const [loading, setLoading] = useState(false)
+  const [modelConfig, setModelConfig] = useState(null)
   const scroller = useRef(null)
 
   useEffect(() => {
@@ -24,7 +26,7 @@ export default function SimplifiedChat() {
     setLoading(true)
     
     try {
-      const res = await sendMessage(text)
+      const res = await sendMessage(text, modelConfig)
       
       if (res.blocked) {
         // Generic block message without metrics
@@ -68,6 +70,8 @@ export default function SimplifiedChat() {
         <h3>💬 Test Chat</h3>
         <span className="chat-subtitle">Protected by Semantic Firewall</span>
       </div>
+      
+      <ModelSelector onConfigChange={setModelConfig} />
       
       <div className="chat-messages" ref={scroller}>
         {messages.map((msg, i) => (
