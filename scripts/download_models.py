@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script to pre-download all ML models to local cache.
 This should be run at container startup or during Docker build.
