@@ -741,6 +741,37 @@ async def get_stats():
         )
 
 
+@app.get("/api/models/available")
+async def get_available_models():
+    """
+    Get list of available detector models for each category.
+    
+    Returns:
+        Dictionary with available models for:
+        - prompt_injection
+        - pii
+        - toxicity
+        
+        And default models for each category.
+    """
+    try:
+        from fast_ml_filter.detector_factory import DetectorFactory
+        
+        available = DetectorFactory.get_available_models()
+        defaults = DetectorFactory.get_default_models()
+        
+        return {
+            "available": available,
+            "defaults": defaults
+        }
+    except Exception as e:
+        logger.error(f"Error getting available models: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving available models"
+        )
+
+
 @app.get("/api/recent-requests")
 async def get_recent_requests(limit: int = 50):
     """

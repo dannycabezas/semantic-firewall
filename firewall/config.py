@@ -50,6 +50,7 @@ class MLConfig(BaseSettings):
     toxicity_detector_type: str = "detoxify"  # 'detoxify' or 'onnx'
     detoxify_model_name: str = "original"  # 'original', 'unbiased', or 'multilingual'
     prompt_injection_model: str = "models/SF_model_v1.onnx"
+    prompt_injection_detector_type: str = "custom_onnx"  # 'custom_onnx', 'deberta', 'llama_guard_86m', 'llama_guard_22m'
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = "nomic-embed-text:v1.5"
     ollama_embedding_url: str = f"{ollama_base_url}/api/embeddings"
