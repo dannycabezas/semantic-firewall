@@ -30,6 +30,7 @@ services:
       - BENCHMARK_DB_PATH=/data/benchmarks.db  # Benchmark database
       - HF_HOME=/data/huggingface
       - HF_DATASETS_CACHE=/data/huggingface/datasets
+      - HF_TOKEN=${HF_TOKEN} # Hugging Face token
     volumes:
       - benchmark_data:/data
     depends_on:

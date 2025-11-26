@@ -8,6 +8,7 @@ from fast_ml_filter.ports.prompt_injection_detector_port import IPromptInjection
 from fast_ml_filter.ports.heuristic_detector_port import IHeuristicDetector
 from fast_ml_filter.adapters.custom_onnx_prompt_injection_detector import CustomONNXPromptInjectionDetector
 from fast_ml_filter.adapters.deberta_prompt_injection_detector import DeBERTaPromptInjectionDetector
+from fast_ml_filter.adapters.llama_prompt_guard_detector import LlamaPromptGuardDetector
 from fast_ml_filter.adapters.presidio_pii_detector import PresidioPIIDetector
 from fast_ml_filter.adapters.onnx_pii_detector import ONNXPIIDetector
 from fast_ml_filter.adapters.mock_pii_detector import MockPIIDetector
@@ -23,6 +24,8 @@ class DetectorFactory:
     PROMPT_INJECTION_DETECTORS: Dict[str, type] = {
         "custom_onnx": CustomONNXPromptInjectionDetector,
         "deberta": DeBERTaPromptInjectionDetector,
+        "llama_guard_86m": LlamaPromptGuardDetector,
+        "llama_guard_22m": LlamaPromptGuardDetector,
     }
     
     PII_DETECTORS: Dict[str, type] = {
@@ -87,6 +90,14 @@ class DetectorFactory:
         elif model_name == "deberta":
             return detector_class(
                 model_name="ProtectAI/deberta-v3-base-prompt-injection-v2"
+            )
+        elif model_name == "llama_guard_86m":
+            return detector_class(
+                model_name="meta-llama/Llama-Prompt-Guard-2-86M"
+            )
+        elif model_name == "llama_guard_22m":
+            return detector_class(
+                model_name="meta-llama/Llama-Prompt-Guard-2-22M"
             )
         else:
             return detector_class()
