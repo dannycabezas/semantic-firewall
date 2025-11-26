@@ -1,31 +1,31 @@
 # Benchmark System - Semantic Firewall
 
-Sistema de benchmarks para evaluar el rendimiento del firewall semántico contra datasets de Hugging Face.
+Benchmark system for evaluating the semantic firewall's performance against Hugging Face datasets.
 
-## Características
+## Features
 
-- ✅ Carga automática de datasets desde Hugging Face Hub
-- ✅ Ejecución asíncrona de benchmarks
-- ✅ Métricas detalladas: Precision, Recall, F1-Score, Accuracy
-- ✅ Matriz de confusión (TP, FP, TN, FN)
-- ✅ Análisis de errores: Falsos Positivos y Falsos Negativos
-- ✅ Almacenamiento persistente en SQLite
-- ✅ Dashboard interactivo en React
-- ✅ Soporte para cancelación de benchmarks
-- ✅ Exportación de resultados a CSV
+- ✅ Automatic dataset loading from Hugging Face Hub
+- ✅ Asynchronous benchmark execution
+- ✅ Detailed metrics: Precision, Recall, F1-Score, Accuracy
+- ✅ Confusion matrix (TP, FP, TN, FN)
+- ✅ Error analysis: False Positives and False Negatives
+- ✅ Persistent storage in SQLite
+- ✅ Interactive React dashboard
+- ✅ Benchmark cancellation support
+- ✅ CSV results export
 
-## Arquitectura
+## Architecture
 
 ### Backend
 
 ```
 firewall/benchmark/
 ├── __init__.py
-├── database.py              # Schema SQLite y operaciones DB
-├── dataset_loader.py        # Carga datasets de HuggingFace
-├── benchmark_runner.py      # Orquestación de benchmarks
-├── metrics_calculator.py    # Cálculo de métricas
-├── init_db.py              # Script de inicialización
+├── database.py              # SQLite schema and DB operations
+├── dataset_loader.py        # HuggingFace dataset loading
+├── benchmark_runner.py      # Benchmark orchestration
+├── metrics_calculator.py    # Metrics calculation
+├── init_db.py              # Initialization script
 └── README.md
 ```
 
@@ -33,64 +33,64 @@ firewall/benchmark/
 
 ```
 frontend/src/components/benchmarks/
-├── BenchmarkDashboard.jsx      # Componente principal
-├── BenchmarkExecutor.jsx       # Formulario para iniciar benchmarks
-├── BenchmarkHistory.jsx        # Historial de ejecuciones
-├── BenchmarkMetricsView.jsx    # Visualización de métricas
-└── ErrorAnalysisView.jsx       # Análisis de FP/FN
+├── BenchmarkDashboard.jsx      # Main component
+├── BenchmarkExecutor.jsx       # Form to start benchmarks
+├── BenchmarkHistory.jsx        # Execution history
+├── BenchmarkMetricsView.jsx    # Metrics visualization
+└── ErrorAnalysisView.jsx       # FP/FN analysis
 ```
 
-## Uso
+## Usage
 
-### 1. Inicializar la Base de Datos
+### 1. Initialize the Database
 
 ```bash
 cd firewall
 python -m benchmark.init_db
 ```
 
-### 2. Iniciar el Firewall
+### 2. Start the Firewall
 
-El sistema de benchmarks se inicializa automáticamente al arrancar el firewall:
+The benchmark system initializes automatically when starting the firewall:
 
 ```bash
 python semantic_firewall.py
 ```
 
-### 3. Acceder al Dashboard
+### 3. Access the Dashboard
 
-Navega a `http://localhost:5173/benchmarks` en el frontend.
+Navigate to `http://localhost:5173/benchmarks` in the frontend.
 
-### 4. Ejecutar un Benchmark
+### 4. Run a Benchmark
 
-1. Ve a la pestaña "Nueva Ejecución"
-2. Ingresa el nombre del dataset (ej: `jackhhao/jailbreak-classification`)
-3. Selecciona el split (test/train/validation)
-4. Opcionalmente, limita el número de muestras
-5. Click en "Iniciar Benchmark"
+1. Go to the "New Execution" tab
+2. Enter the dataset name (e.g., `jackhhao/jailbreak-classification`)
+3. Select the split (test/train/validation)
+4. Optionally, limit the number of samples
+5. Click "Start Benchmark"
 
-### 5. Ver Resultados
+### 5. View Results
 
-- **Métricas**: Visualiza F1-Score, Accuracy, Matriz de Confusión
-- **Análisis de Errores**: Explora falsos positivos y negativos con detalles de scores ML
-- **Historial**: Compara múltiples ejecuciones
+- **Metrics**: View F1-Score, Accuracy, Confusion Matrix
+- **Error Analysis**: Explore false positives and negatives with ML score details
+- **History**: Compare multiple executions
 
-## Datasets Soportados
+## Supported Datasets
 
-El sistema mapea automáticamente estos datasets:
+The system automatically maps these datasets:
 
 ### jackhhao/jailbreak-classification
-- **Columna prompt**: `prompt`
-- **Columna label**: `type`
-- **Valores**: `"jailbreak"` (malicioso) o `"benign"` (seguro)
+- **Prompt column**: `prompt`
+- **Label column**: `type`
+- **Values**: `"jailbreak"` (malicious) or `"benign"` (safe)
 
-### Datasets Personalizados
+### Custom Datasets
 
-Para agregar soporte a otros datasets, edita `dataset_loader.py`:
+To add support for other datasets, edit `dataset_loader.py`:
 
 ```python
 DATASET_MAPPINGS = {
-    "tu-usuario/tu-dataset": {
+    "your-user/your-dataset": {
         "prompt_column": "text",
         "label_column": "label",
         "label_mapping": {
@@ -104,7 +104,7 @@ DATASET_MAPPINGS = {
 ## API Endpoints
 
 ### POST /api/benchmarks/start
-Inicia un nuevo benchmark.
+Starts a new benchmark.
 
 **Request:**
 ```json
@@ -126,7 +126,7 @@ Inicia un nuevo benchmark.
 ```
 
 ### GET /api/benchmarks/status/{run_id}
-Obtiene el estado actual de un benchmark.
+Gets the current status of a benchmark.
 
 **Response:**
 ```json
@@ -142,7 +142,7 @@ Obtiene el estado actual de un benchmark.
 ```
 
 ### GET /api/benchmarks/metrics/{run_id}
-Obtiene métricas calculadas.
+Gets calculated metrics.
 
 **Response:**
 ```json
@@ -160,7 +160,7 @@ Obtiene métricas calculadas.
 ```
 
 ### GET /api/benchmarks/errors/{run_id}
-Obtiene análisis de errores detallado.
+Gets detailed error analysis.
 
 **Response:**
 ```json
@@ -168,7 +168,7 @@ Obtiene análisis de errores detallado.
   "false_positives": [
     {
       "id": 1,
-      "input_text": "prompt bloqueado incorrectamente",
+      "input_text": "prompt incorrectly blocked",
       "expected_label": "benign",
       "predicted_label": "blocked",
       "analysis_details": {
@@ -185,77 +185,76 @@ Obtiene análisis de errores detallado.
 }
 ```
 
-## Interpretación de Métricas
+## Metrics Interpretation
 
-### Matriz de Confusión
+### Confusion Matrix
 
-- **True Positive (TP)**: Ataques detectados correctamente ✅
-- **False Negative (FN)**: Ataques que pasaron ❌ (CRÍTICO - riesgo de seguridad)
-- **False Positive (FP)**: Usuarios legítimos bloqueados ⚠️ (impacto UX)
-- **True Negative (TN)**: Usuarios legítimos permitidos ✅
+- **True Positive (TP)**: Attacks correctly detected ✅
+- **False Negative (FN)**: Attacks that passed through ❌ (CRITICAL - security risk)
+- **False Positive (FP)**: Legitimate users blocked ⚠️ (UX impact)
+- **True Negative (TN)**: Legitimate users allowed ✅
 
-### Métricas de Clasificación
+### Classification Metrics
 
-- **Precision** = TP / (TP + FP) - De todo lo bloqueado, cuánto era realmente malicioso
-- **Recall** = TP / (TP + FN) - De todos los ataques, cuántos detectamos
-- **F1-Score** = 2 * (Precision * Recall) / (Precision + Recall) - Balance entre Precision y Recall
-- **Accuracy** = (TP + TN) / Total - Porcentaje de aciertos totales
+- **Precision** = TP / (TP + FP) - Of everything blocked, how much was actually malicious
+- **Recall** = TP / (TP + FN) - Of all attacks, how many we detected
+- **F1-Score** = 2 * (Precision * Recall) / (Precision + Recall) - Balance between Precision and Recall
+- **Accuracy** = (TP + TN) / Total - Overall percentage of correct predictions
 
-### Casos de Uso para Ajuste
+### Use Cases for Tuning
 
-#### FN Alto (Falsos Negativos)
-- **Problema**: Ataques pasando el firewall
-- **Solución**: 
-  - Aumentar sensibilidad de detectores
-  - Reducir thresholds
-  - Entrenar modelos con nuevos ejemplos
+#### High FN (False Negatives)
+- **Problem**: Attacks passing through the firewall
+- **Solution**: 
+  - Increase detector sensitivity
+  - Reduce thresholds
+  - Train models with new examples
 
-#### FP Alto (Falsos Positivos)
-- **Problema**: Usuarios legítimos bloqueados
-- **Solución**:
-  - Reducir sensibilidad
-  - Aumentar thresholds
-  - Refinar reglas heurísticas
+#### High FP (False Positives)
+- **Problem**: Legitimate users blocked
+- **Solution**:
+  - Reduce sensitivity
+  - Increase thresholds
+  - Refine heuristic rules
 
-## Variables de Entorno
+## Environment Variables
 
 ```bash
-# Ruta de la base de datos de benchmarks
+# Benchmark database path
 BENCHMARK_DB_PATH=/data/benchmarks.db
 ```
 
-## Dependencias
+## Dependencies
 
 Backend:
 - `datasets` - Hugging Face datasets library
 - `aiosqlite` - SQLite async
-- `numpy` - Cálculos estadísticos
+- `numpy` - Statistical calculations
 
 Frontend:
 - `react-router-dom` - Routing
-- `recharts` - Visualizaciones
+- `recharts` - Visualizations
 
 ## Troubleshooting
 
 ### Error: "Benchmark system not initialized"
-- Verifica que la base de datos se haya inicializado correctamente
-- Revisa los logs del servidor para errores de startup
+- Verify that the database was initialized correctly
+- Check server logs for startup errors
 
-### Benchmark se queda en "running" indefinidamente
-- Verifica logs del servidor para excepciones
-- Chequea conectividad con Hugging Face Hub
-- Asegúrate de que el dataset existe y es accesible
+### Benchmark stuck in "running" indefinitely
+- Check server logs for exceptions
+- Verify connectivity with Hugging Face Hub
+- Ensure the dataset exists and is accessible
 
-### Métricas no disponibles
-- Las métricas solo se calculan cuando el benchmark completa
-- Espera a que el status sea "completed"
-- Si el benchmark falló, no habrá métricas
+### Metrics not available
+- Metrics are only calculated when the benchmark completes
+- Wait for the status to be "completed"
+- If the benchmark failed, there will be no metrics
 
-## Contribuir
+## Contributing
 
-Para agregar soporte a nuevos tipos de datasets:
+To add support for new dataset types:
 
-1. Edita `DATASET_MAPPINGS` en `dataset_loader.py`
-2. Agrega tests para el nuevo formato
-3. Actualiza esta documentación
-
+1. Edit `DATASET_MAPPINGS` in `dataset_loader.py`
+2. Add tests for the new format
+3. Update this documentation
