@@ -10,12 +10,20 @@ export default function SimplifiedChat() {
   const [loading, setLoading] = useState(false)
   const [modelConfig, setModelConfig] = useState(null)
   const scroller = useRef(null)
+  const inputRef = useRef(null)  // Ref para el input
 
   useEffect(() => {
     if (scroller.current) {
       scroller.current.scrollTop = scroller.current.scrollHeight
     }
   }, [messages])
+
+  // Enfocar el input cuando el componente se monta
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [])
 
   const handleSend = async () => {
     const text = input.trim()
@@ -54,6 +62,13 @@ export default function SimplifiedChat() {
       }])
     } finally {
       setLoading(false)
+      // Enfocar el input después de enviar
+      if (inputRef.current) {
+        // Usar setTimeout para asegurar que el DOM se haya actualizado
+        setTimeout(() => {
+          inputRef.current?.focus()
+        }, 0)
+      }
     }
   }
 
@@ -85,6 +100,7 @@ export default function SimplifiedChat() {
       
       <div className="chat-input-row">
         <input 
+          ref={inputRef}  // Agregar la ref al input
           type="text" 
           value={input} 
           onChange={e => setInput(e.target.value)} 
