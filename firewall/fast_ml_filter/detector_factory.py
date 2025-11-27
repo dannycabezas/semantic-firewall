@@ -56,7 +56,7 @@ class DetectorFactory:
     # Default model names
     DEFAULT_PROMPT_INJECTION = "custom_onnx"
     DEFAULT_PII = "presidio"
-    DEFAULT_TOXICITY = "detoxify"
+    DEFAULT_TOXICITY = "onnx"
     
     def __init__(self, config: Optional[FirewallConfig] = None):
         """

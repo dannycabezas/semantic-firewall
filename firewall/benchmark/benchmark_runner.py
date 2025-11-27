@@ -23,7 +23,9 @@ class BenchmarkRunner:
     def __init__(
         self,
         orchestrator: FirewallOrchestrator,
-        database: BenchmarkDatabase
+        database: BenchmarkDatabase,
+        max_concurrent_samples: int = 10,
+        batch_size: int = 50
     ):
         self.orchestrator = orchestrator
         self.database = database
@@ -33,6 +35,10 @@ class BenchmarkRunner:
         # Track running benchmarks
         self.active_runs: Dict[str, Dict[str, Any]] = {}
         self.cancel_flags: Dict[str, bool] = {}
+        
+        # Concurrency control
+        self.max_concurrent_samples = max_concurrent_samples
+        self.batch_size = batch_size
     
     async def start_benchmark(
         self,
@@ -113,7 +119,7 @@ class BenchmarkRunner:
         tenant_id: str,
         model_config: Optional[Dict[str, str]] = None
     ):
-        """Execute the benchmark processing."""
+        """Execute the benchmark processing with parallel execution and batch inserts."""
         # Create orchestrator with model config if provided
         if model_config:
             from container import FirewallContainer
@@ -150,20 +156,77 @@ class BenchmarkRunner:
         results = []
         
         try:
-            for sample in samples:
+            # Create semaphore for concurrency control
+            semaphore = asyncio.Semaphore(self.max_concurrent_samples)
+            
+            # Process samples in batches for better memory management
+            total_samples = len(samples)
+            
+            for batch_start in range(0, total_samples, self.batch_size):
                 # Check for cancellation
                 if self.cancel_flags.get(run_id, False):
                     logger.info(f"Benchmark {run_id} cancelled")
                     await self.database.update_run_status(run_id, "cancelled")
                     break
                 
-                # Process sample through firewall
-                result = await self._process_sample(run_id, sample, tenant_id, benchmark_orchestrator)
-                results.append(result)
+                batch_end = min(batch_start + self.batch_size, total_samples)
+                batch_samples = samples[batch_start:batch_end]
                 
-                # Update progress
-                self.active_runs[run_id]["processed_samples"] += 1
-                await self.database.increment_processed_samples(run_id)
+                logger.info(f"Processing batch {batch_start}-{batch_end} of {total_samples} samples")
+                
+                # Process batch in parallel with semaphore
+                tasks = [
+                    self._process_sample_with_semaphore(
+                        semaphore, run_id, sample, tenant_id, benchmark_orchestrator
+                    )
+                    for sample in batch_samples
+                ]
+                
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Separate successful results from exceptions
+                successful_results = []
+                db_batch = []
+                
+                for sample, result in zip(batch_samples, batch_results):
+                    if isinstance(result, Exception):
+                        logger.error(f"Error processing sample {sample.index}: {result}")
+                        # Create error result
+                        error_result = {
+                            "result_type": "ERROR",
+                            "latency_ms": 0.0,
+                            "expected_label": sample.expected_label,
+                            "predicted_label": "error"
+                        }
+                        successful_results.append(error_result)
+                        
+                        db_batch.append({
+                            "run_id": run_id,
+                            "sample_index": sample.index,
+                            "input_text": sample.prompt,
+                            "expected_label": sample.expected_label,
+                            "predicted_label": "error",
+                            "is_correct": False,
+                            "result_type": "ERROR",
+                            "analysis_details": {"error": str(result)},
+                            "latency_ms": 0.0
+                        })
+                    else:
+                        successful_results.append(result["metrics"])
+                        db_batch.append(result["db_record"])
+                
+                results.extend(successful_results)
+                
+                # Batch insert to database
+                if db_batch:
+                    await self.database.save_results_batch(db_batch)
+                    
+                    # Update progress counter
+                    batch_count = len(db_batch)
+                    self.active_runs[run_id]["processed_samples"] += batch_count
+                    await self.database.update_processed_samples_batch(run_id, batch_count)
+                
+                logger.info(f"Batch {batch_start}-{batch_end} completed")
             
             # If not cancelled, calculate and save final metrics
             if not self.cancel_flags.get(run_id, False):
@@ -182,6 +245,18 @@ class BenchmarkRunner:
             # Cleanup
             if run_id in self.cancel_flags:
                 del self.cancel_flags[run_id]
+    
+    async def _process_sample_with_semaphore(
+        self,
+        semaphore: asyncio.Semaphore,
+        run_id: str,
+        sample: DatasetSample,
+        tenant_id: str,
+        orchestrator: Optional[FirewallOrchestrator] = None
+    ) -> Dict[str, Any]:
+        """Process a sample with semaphore-based concurrency control."""
+        async with semaphore:
+            return await self._process_sample(run_id, sample, tenant_id, orchestrator)
     
     async def _process_sample(
         self,
@@ -252,24 +327,28 @@ class BenchmarkRunner:
                 "latency_ms": latency_ms
             }
             
-            # Save to database
-            await self.database.save_result(
-                run_id=run_id,
-                sample_index=sample.index,
-                input_text=sample.prompt,
-                expected_label=sample.expected_label,
-                predicted_label="blocked" if blocked else "allowed",
-                is_correct=(result_type in ["TRUE_POSITIVE", "TRUE_NEGATIVE"]),
-                result_type=result_type,
-                analysis_details=analysis_details,
-                latency_ms=latency_ms
-            )
-            
-            return {
-                "result_type": result_type,
-                "latency_ms": latency_ms,
+            # Prepare database record
+            db_record = {
+                "run_id": run_id,
+                "sample_index": sample.index,
+                "input_text": sample.prompt,
                 "expected_label": sample.expected_label,
-                "predicted_label": "blocked" if blocked else "allowed"
+                "predicted_label": "blocked" if blocked else "allowed",
+                "is_correct": (result_type in ["TRUE_POSITIVE", "TRUE_NEGATIVE"]),
+                "result_type": result_type,
+                "analysis_details": analysis_details,
+                "latency_ms": latency_ms
+            }
+            
+            # Return both metrics and db record
+            return {
+                "metrics": {
+                    "result_type": result_type,
+                    "latency_ms": latency_ms,
+                    "expected_label": sample.expected_label,
+                    "predicted_label": "blocked" if blocked else "allowed"
+                },
+                "db_record": db_record
             }
         
         except ContentBlockedException as e:
@@ -299,51 +378,60 @@ class BenchmarkRunner:
                 "latency_ms": latency_ms
             }
             
-            # Save to database
-            await self.database.save_result(
-                run_id=run_id,
-                sample_index=sample.index,
-                input_text=sample.prompt,
-                expected_label=sample.expected_label,
-                predicted_label="blocked",
-                is_correct=(result_type in ["TRUE_POSITIVE", "TRUE_NEGATIVE"]),
-                result_type=result_type,
-                analysis_details=analysis_details,
-                latency_ms=latency_ms
-            )
-            
-            return {
-                "result_type": result_type,
-                "latency_ms": latency_ms,
+            # Prepare database record
+            db_record = {
+                "run_id": run_id,
+                "sample_index": sample.index,
+                "input_text": sample.prompt,
                 "expected_label": sample.expected_label,
-                "predicted_label": "blocked"
+                "predicted_label": "blocked",
+                "is_correct": (result_type in ["TRUE_POSITIVE", "TRUE_NEGATIVE"]),
+                "result_type": result_type,
+                "analysis_details": analysis_details,
+                "latency_ms": latency_ms
+            }
+            
+            # Return both metrics and db record
+            return {
+                "metrics": {
+                    "result_type": result_type,
+                    "latency_ms": latency_ms,
+                    "expected_label": sample.expected_label,
+                    "predicted_label": "blocked"
+                },
+                "db_record": db_record
             }
             
         except Exception as e:
             # Unexpected error during processing
             logger.error(f"Error processing sample {sample.index}: {e}")
             
-            # Save error result
+            # Prepare error result
             latency_ms = (time.time() - start_time) * 1000
             analysis_details = {"error": str(e)}
             
-            await self.database.save_result(
-                run_id=run_id,
-                sample_index=sample.index,
-                input_text=sample.prompt,
-                expected_label=sample.expected_label,
-                predicted_label="error",
-                is_correct=False,
-                result_type="ERROR",
-                analysis_details=analysis_details,
-                latency_ms=latency_ms
-            )
-            
-            return {
-                "result_type": "ERROR",
-                "latency_ms": latency_ms,
+            # Prepare database record
+            db_record = {
+                "run_id": run_id,
+                "sample_index": sample.index,
+                "input_text": sample.prompt,
                 "expected_label": sample.expected_label,
-                "predicted_label": "error"
+                "predicted_label": "error",
+                "is_correct": False,
+                "result_type": "ERROR",
+                "analysis_details": analysis_details,
+                "latency_ms": latency_ms
+            }
+            
+            # Return both metrics and db record
+            return {
+                "metrics": {
+                    "result_type": "ERROR",
+                    "latency_ms": latency_ms,
+                    "expected_label": sample.expected_label,
+                    "predicted_label": "error"
+                },
+                "db_record": db_record
             }
     
     async def cancel_benchmark(self, run_id: str) -> bool:

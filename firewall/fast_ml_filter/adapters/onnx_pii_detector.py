@@ -20,6 +20,7 @@ class ONNXPIIDetector(IPIIDetector):
         self._use_model = False
 
     def _load_model(self):
+
         """Lazy load ONNX model."""
         if self.model_path and not self._use_model:
             try:

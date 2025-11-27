@@ -182,6 +182,66 @@ class BenchmarkDatabase:
             ))
             await db.commit()
 
+    async def save_results_batch(
+        self,
+        results: List[Dict[str, Any]]
+    ):
+        """
+        Save multiple benchmark results in a single transaction.
+        
+        Args:
+            results: List of result dictionaries with keys:
+                - run_id, sample_index, input_text, expected_label, predicted_label,
+                  is_correct, result_type, analysis_details, latency_ms
+        """
+        if not results:
+            return
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            created_at = datetime.utcnow().isoformat()
+            
+            # Prepare batch data
+            batch_data = []
+            for result in results:
+                batch_data.append((
+                    result["run_id"],
+                    result["sample_index"],
+                    result["input_text"],
+                    result["expected_label"],
+                    result["predicted_label"],
+                    1 if result["is_correct"] else 0,
+                    result["result_type"],
+                    json.dumps(result["analysis_details"]),
+                    result["latency_ms"],
+                    created_at
+                ))
+            
+            # Execute batch insert
+            await db.executemany("""
+                INSERT INTO benchmark_results
+                (run_id, sample_index, input_text, expected_label, predicted_label,
+                 is_correct, result_type, analysis_details, latency_ms, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, batch_data)
+            
+            await db.commit()
+
+    async def update_processed_samples_batch(self, run_id: str, count: int):
+        """
+        Increment the processed samples counter by a specific count.
+        
+        Args:
+            run_id: Benchmark run ID
+            count: Number of samples to add to processed count
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE benchmark_runs 
+                SET processed_samples = processed_samples + ?
+                WHERE id = ?
+            """, (count, run_id))
+            await db.commit()
+
     async def save_metrics(
         self,
         run_id: str,
