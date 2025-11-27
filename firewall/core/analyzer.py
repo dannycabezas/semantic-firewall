@@ -36,7 +36,7 @@ class IPreprocessorService(Protocol):
 class IMLFilterService(Protocol):
     """Interface of the ML filter service."""
 
-    def analyze(self, text: str) -> MLSignals: ...
+    async def analyze(self, text: str, context: RequestContext | None = None) -> MLSignals: ...
 
 
 class IPolicyService(Protocol):
@@ -76,7 +76,7 @@ class FirewallAnalyzer:
         self._policy_engine = policy_engine
         self._tenant_id = tenant_id
 
-    def analyze_content(
+    async def analyze_content(
         self,
         content: str,
         direction: AnalysisDirection = AnalysisDirection.INGRESS,
@@ -104,8 +104,8 @@ class FirewallAnalyzer:
         # 1. Preprocess
         preprocessed = self._preprocessor.preprocess(content, store=store)
 
-        # 2. Analyze with ML
-        ml_signals = self._ml_filter.analyze(preprocessed.normalized_text, context)
+        # 2. Analyze with ML (now async and parallel)
+        ml_signals = await self._ml_filter.analyze(preprocessed.normalized_text, context)
 
         # 3. Evaluate policies
         decision = self._policy_engine.evaluate(

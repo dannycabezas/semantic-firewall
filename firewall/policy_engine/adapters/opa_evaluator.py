@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 import httpx
 from policy_engine.ports.policy_evaluator_port import IPolicyEvaluator
+from core.utils.decorators import log_execution_time
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class OPAEvaluator(IPolicyEvaluator):
             logger.error(f"OPA health check failed: {e}")
             return False
 
+    @log_execution_time()
     def _load_policy(self, rego_policy: str) -> None:
         """
         Load Rego policy into OPA server.
@@ -79,6 +81,7 @@ class OPAEvaluator(IPolicyEvaluator):
             logger.error(f"Failed to connect to OPA server: {e}")
             raise RuntimeError(f"OPA server connection failed: {e}") from e
 
+    @log_execution_time()
     def _evaluate_policy(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Evaluate policy using OPA HTTP API.
@@ -113,6 +116,7 @@ class OPAEvaluator(IPolicyEvaluator):
             logger.error(f"Failed to evaluate policy: {e}")
             raise
 
+    @log_execution_time()
     def evaluate(
         self,
         ml_signals: Dict[str, Any],

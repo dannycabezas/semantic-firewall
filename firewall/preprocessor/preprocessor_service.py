@@ -67,7 +67,7 @@ class PreprocessorService:
         normalized_text = self.normalizer.normalize(text)
 
         # 2. Vectorize
-        embedding = self.vectorizer.vectorize(normalized_text)
+        embedding = [] # self.vectorizer.vectorize(normalized_text)
 
         # 3. Extract features
         features = self.feature_extractor.extract(normalized_text)

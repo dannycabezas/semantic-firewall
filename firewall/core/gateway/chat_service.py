@@ -1,167 +1,149 @@
+# chat_service.py - Versión Refactorizada
+
 import time
 import uuid
-import os
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from fastapi import HTTPException, Request, status
-
+from core.gateway.extractors import RequestHeaderExtractor, MetricsExtractor
+from core.gateway.builders import RequestContextBuilder
 from core.exceptions import BackendError, ContentBlockedException, FirewallException
-from core.request_context import RequestContext
 from core.gateway import create_gateway_orchestrator, get_default_gateway
-from core.risk import get_risk_level
-from core.events import create_standardized_event
-from core.metrics.adapter import extract_ml_metrics
-from core.metrics import metrics_service
-from core.realtime import event_queue
 from core.api_models import (
     ChatRequest,
     ChatResponse,
-    PreprocessingMetrics,
-    PolicyMetrics,
 )
+from core.gateway.broadcaster import EventBroadcaster
 
 
 logger = logging.getLogger(__name__)
-TENANT_ID = os.getenv("TENANT_ID", "default")
 
 
-def _generate_request_id() -> str:
-    return str(uuid.uuid4())
-
-
-async def process_chat_request(payload: ChatRequest, request: Request) -> ChatResponse:
-    """
-    Process the complete chat request using the gateway/firewall.
-
-    Encapsulates all the logic of:
-    - Context construction
-    - Call to the orchestrator
-    - Extraction of metrics
-    - Creation of standardized events
-    - Registration in metrics and broadcast by WebSocket
-    """
-    request_id = _generate_request_id()
-
-    # TODO: For now we are using hardcoded values, we need to get them from the request
-    # header and calculate the aggregated values
-    user_id = (
-        request.headers.get("X-User-ID")
-        or "96424373-aa08-44ae-98ff-9d63e2981663"
-    )
-    session_id = (
-        request.headers.get("X-Session-ID")
-        or "a1e423e8-8486-4309-a660-fdf5b3d55ae9"
-    )
-    device = request.headers.get("User-Agent", "Unknown")
-    temperature = request.headers.get("X-Temperature", 0.5)
-    max_tokens = request.headers.get("X-Max-Tokens", 20)
-    turn_count = request.headers.get("X-Turn-Count", 1)
-    rate_limit = request.headers.get("X-Rate-Limit", 0)
-
-    request_start_time = time.time()
-    logger.info("[%s] New chat request: %s...", request_id, payload.message[:50])
-
-    context = RequestContext(
-        request_id=request_id,
-        user_id=user_id,
-        session_id=session_id,
-        tenant_id=TENANT_ID,
-        endpoint="/api/chat",
-        device=device,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        turn_count=turn_count,
-        rate_limit_remaining=rate_limit,
-    )
-
-    try:
-        # Create orchestrator with model configuration if provided,
-        # otherwise use the default gateway/firewall.
-        current_firewall = (
-            create_gateway_orchestrator(model_config=payload.detector_config)
-            if payload.detector_config
-            else get_default_gateway()
+class ChatService:
+    """Main service for processing chat requests."""
+    
+    def __init__(
+        self,
+        header_extractor: RequestHeaderExtractor,
+        context_builder: RequestContextBuilder,
+        metrics_extractor: MetricsExtractor,
+        event_broadcaster: EventBroadcaster,
+    ) -> None:
+        """Initialize the chat service."""
+        self.header_extractor = header_extractor
+        self.context_builder = context_builder
+        self.metrics_extractor = metrics_extractor
+        self.event_broadcaster = event_broadcaster
+    
+    @staticmethod
+    def _generate_request_id() -> str:
+        """Generate a unique ID for the request."""
+        return str(uuid.uuid4())
+    
+    async def process_request(
+        self,
+        payload: ChatRequest,
+        request: Request
+    ) -> ChatResponse:
+        """
+        Process a complete chat request.
+        
+        Orchestrates the complete flow of:
+        - Building the context
+        - Processing through the firewall
+        - Extracting metrics
+        - Broadcasting events
+        """
+        request_id = self._generate_request_id()
+        request_start_time = time.time()
+        
+        logger.info("[%s] New chat request: %s...", request_id, payload.message[:50])
+        
+        # Extract headers and build context
+        headers = self.header_extractor.extract(request)
+        context = self.context_builder.build(request_id, headers)
+        
+        try:
+            # Get firewall/orchestrator
+            firewall = self._get_firewall(payload.detector_config)
+            
+            # Process through firewall
+            response = await firewall.process_chat_request(
+                message=payload.message,
+                request_id=request_id,
+                analyze_egress=False,
+                context=context,
+            )
+            
+            total_latency = (time.time() - request_start_time) * 1000
+            
+            # Handle successful response
+            return await self._handle_success_response(
+                response=response,
+                payload=payload,
+                request_id=request_id,
+                total_latency=total_latency,
+            )
+        
+        except ContentBlockedException as exc:
+            return await self._handle_blocked_request(
+                exc=exc,
+                payload=payload,
+                request_id=request_id,
+                request_start_time=request_start_time,
+            )
+        
+        except BackendError as exc:
+            self._handle_backend_error(request_id, exc)
+        
+        except FirewallException as exc:
+            self._handle_firewall_error(request_id, exc)
+        
+        except Exception as exc:
+            self._handle_unexpected_error(request_id, exc)
+    
+    def _get_firewall(self, detector_config: Optional[Dict]):
+        """Get the appropriate firewall based on the configuration."""
+        if detector_config:
+            return create_gateway_orchestrator(model_config=detector_config)
+        return get_default_gateway()
+    
+    async def _handle_success_response(
+        self,
+        response: Dict[str, Any],
+        payload: ChatRequest,
+        request_id: str,
+        total_latency: float,
+    ) -> ChatResponse:
+        """Handles a successful firewall response."""
+        # Extract metrics
+        ml_metrics, preprocessing_metrics, policy_metrics, latency_breakdown = (
+            self.metrics_extractor.extract_from_response(
+                response, payload.detector_config
+            )
         )
-
-        # Process complete request through the orchestrator
-        response = await current_firewall.process_chat_request(
-            message=payload.message,
-            request_id=request_id,
-            analyze_egress=False,
-            context=context,
-        )
-
-        total_latency = (time.time() - request_start_time) * 1000
-
-        # Extract metrics from response
-        ml_metrics = []
-        preprocessing_metrics = None
-        policy_metrics = None
-        latency_breakdown: dict = {}
-        ml_signals = None
-        preprocessed = None
-        decision = None
-
-        if "metrics" in response:
-            metrics = response["metrics"]
-            ml_signals = metrics.get("ml_signals")
-            preprocessed = metrics.get("preprocessed")
-            decision = metrics.get("decision")
-
-            # ML Detector metrics with thresholds and status
-            if ml_signals:
-                ml_metrics = extract_ml_metrics(
-                    ml_signals, detector_config=payload.detector_config
-                )
-
-                # Policy metrics
-                policy_metrics = PolicyMetrics(
-                    matched_rule=decision.matched_rule if decision else None,
-                    confidence=decision.confidence if decision else 0.5,
-                    risk_level=get_risk_level(ml_signals),
-                )
-
-            # Preprocessing metrics
-            if preprocessed:
-                preprocessing_metrics = PreprocessingMetrics(
-                    original_length=len(preprocessed.original_text),
-                    normalized_length=len(preprocessed.normalized_text),
-                    word_count=preprocessed.features.get("word_count", 0),
-                    char_count=len(preprocessed.original_text),
-                )
-
-            # Latency breakdown
-            latency_breakdown = {
-                "preprocessing": metrics.get("preprocessing_latency_ms", 0),
-                "ml_analysis": ml_signals.latency_ms if ml_signals else 0,
-                "policy_eval": metrics.get("policy_latency_ms", 0),
-                "backend": response.get("backend_latency_ms", 0),
-            }
-
-        # Create standardized event and broadcast
+        
+        # Create and broadcast event
+        metrics = response.get("metrics", {})
+        ml_signals = metrics.get("ml_signals")
+        preprocessed = metrics.get("preprocessed")
+        decision = metrics.get("decision")
+        
         if ml_signals and preprocessed and decision:
-            event = create_standardized_event(
+            await self.event_broadcaster.create_and_broadcast_event(
                 request_id=request_id,
                 prompt=payload.message,
-                response=response.get("reply", ""),
+                response_text=response.get("reply", ""),
                 blocked=False,
                 ml_signals=ml_signals,
                 preprocessed=preprocessed,
                 decision=decision,
                 latency_breakdown=latency_breakdown,
                 total_latency=total_latency,
-                session_id=None,  # TODO: Add session tracking
                 detector_config=payload.detector_config,
             )
-
-            # Add to metrics service
-            metrics_service.add_request(event)
-
-            # Broadcast to WebSocket clients
-            if event_queue:
-                await event_queue.put(event)
-
+        
         return ChatResponse(
             blocked=False,
             reply=response.get("reply"),
@@ -171,72 +153,44 @@ async def process_chat_request(payload: ChatRequest, request: Request) -> ChatRe
             latency_breakdown=latency_breakdown,
             total_latency_ms=total_latency,
         )
-
-    except ContentBlockedException as exc:
-        # Blocked by policies
+    
+    async def _handle_blocked_request(
+        self,
+        exc: ContentBlockedException,
+        payload: ChatRequest,
+        request_id: str,
+        request_start_time: float,
+    ) -> ChatResponse:
+        """Handles a request blocked by policies."""
         total_latency = (time.time() - request_start_time) * 1000
         logger.warning("[%s] Blocked by policies: %s", request_id, exc.reason)
-
-        ml_metrics = []
-        preprocessing_metrics = None
-        policy_metrics = None
-        latency_breakdown = {}
-        ml_signals = None
-
-        if hasattr(exc, "ml_signals") and exc.ml_signals:
-            ml_signals = exc.ml_signals
-
-            # ML Detector metrics
-            ml_metrics = extract_ml_metrics(
-                ml_signals, detector_config=payload.detector_config
-            )
-
-            # Policy metrics
-            policy_metrics = PolicyMetrics(
-                matched_rule=exc.details.get("matched_rule"),
-                confidence=exc.details.get("confidence", 0.9),
-                risk_level=get_risk_level(ml_signals),
-            )
-
-            # Latency breakdown
-            latency_breakdown = {
-                "preprocessing": 0,  # Not available in exception
-                "ml_analysis": ml_signals.latency_ms,
-                "policy_eval": 0,
-                "backend": 0,
-            }
-
-        if hasattr(exc, "preprocessed") and exc.preprocessed:
-            preprocessing_metrics = PreprocessingMetrics(
-                original_length=len(exc.preprocessed.original_text),
-                normalized_length=len(exc.preprocessed.normalized_text),
-                word_count=exc.preprocessed.features.get("word_count", 0),
-                char_count=len(exc.preprocessed.original_text),
-            )
-
-        # Create standardized event for blocked request and broadcast
+        
+        # Extract metrics
+        ml_metrics, preprocessing_metrics, policy_metrics, latency_breakdown = (
+            self.metrics_extractor.extract_from_exception(exc, payload.detector_config)
+        )
+        
+        # Create and broadcast event
+        ml_signals = getattr(exc, "ml_signals", None)
         if ml_signals:
-            event = create_standardized_event(
+            # Create a simple decision object for blocked requests
+            decision = type("Decision", (), {
+                "matched_rule": exc.details.get("matched_rule")
+            })()
+            
+            await self.event_broadcaster.create_and_broadcast_event(
                 request_id=request_id,
                 prompt=payload.message,
-                response=exc.reason,
+                response_text=exc.reason,
                 blocked=True,
                 ml_signals=ml_signals,
-                preprocessed=exc.preprocessed if hasattr(exc, "preprocessed") else None,
-                decision=type("obj", (object,), {"matched_rule": exc.details.get("matched_rule")})(),
+                preprocessed=getattr(exc, "preprocessed", None),
+                decision=decision,
                 latency_breakdown=latency_breakdown,
                 total_latency=total_latency,
-                session_id=None,  # TODO: Add session tracking
                 detector_config=payload.detector_config,
             )
-
-            # Add to metrics service
-            metrics_service.add_request(event)
-
-            # Broadcast to WebSocket clients
-            if event_queue:
-                await event_queue.put(event)
-
+        
         return ChatResponse(
             blocked=True,
             reason=exc.reason,
@@ -246,22 +200,25 @@ async def process_chat_request(payload: ChatRequest, request: Request) -> ChatRe
             latency_breakdown=latency_breakdown,
             total_latency_ms=total_latency,
         )
-
-    except BackendError as exc:
+    
+    def _handle_backend_error(self, request_id: str, exc: BackendError):
+        """Handles backend errors."""
         logger.error("[%s] Backend error: %s", request_id, exc.message)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Error communicating with the backend: {exc.message}",
         ) from exc
-
-    except FirewallException as exc:
+    
+    def _handle_firewall_error(self, request_id: str, exc: FirewallException):
+        """Handles firewall errors."""
         logger.error("[%s] Firewall error: %s", request_id, exc.message)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal firewall error: {exc.message}",
         ) from exc
-
-    except Exception as exc:  # pragma: no cover - defensive
+    
+    def _handle_unexpected_error(self, request_id: str, exc: Exception):
+        """Handles unexpected errors."""
         logger.exception("[%s] Unexpected error: %s", request_id, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -269,3 +226,23 @@ async def process_chat_request(payload: ChatRequest, request: Request) -> ChatRe
         ) from exc
 
 
+def create_chat_service() -> ChatService:
+    """Create a chat service instance with all its dependencies."""
+    return ChatService(
+        header_extractor=RequestHeaderExtractor(),
+        context_builder=RequestContextBuilder(),
+        metrics_extractor=MetricsExtractor(),
+        event_broadcaster=EventBroadcaster(),
+    )
+
+
+_chat_service = create_chat_service()
+
+
+async def process_chat_request(payload: ChatRequest, request: Request) -> ChatResponse:
+    """
+    Process a complete chat request.
+    
+    This function maintains the public interface for compatibility.
+    """
+    return await _chat_service.process_request(payload, request)

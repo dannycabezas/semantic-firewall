@@ -2,6 +2,7 @@
 
 from fast_ml_filter.ports.prompt_injection_detector_port import IPromptInjectionDetector
 from core.request_context import RequestContext
+from core.utils.decorators import log_execution_time
 
 
 class LlamaPromptGuardDetector(IPromptInjectionDetector):
@@ -32,6 +33,7 @@ class LlamaPromptGuardDetector(IPromptInjectionDetector):
         self._classifier = None
         self._use_model = False
 
+    @log_execution_time()
     def _load_model(self) -> None:
         """Lazy load Llama Prompt Guard model with pipeline."""
         if not self._use_model:
@@ -103,6 +105,7 @@ class LlamaPromptGuardDetector(IPromptInjectionDetector):
             # Unknown label: use confidence as-is
             return confidence
 
+    @log_execution_time()
     def detect(self, text: str, context: RequestContext | None = None) -> float:
         """
         Detect prompt injection and jailbreak attempts in text.

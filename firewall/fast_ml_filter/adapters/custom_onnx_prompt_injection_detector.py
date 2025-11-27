@@ -5,6 +5,7 @@ import requests
 from typing import Optional, Dict, Any
 from fast_ml_filter.ports.prompt_injection_detector_port import IPromptInjectionDetector
 from core.request_context import RequestContext
+from core.utils.decorators import log_execution_time
 
 
 class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
@@ -33,6 +34,7 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
         self._onnx_model = None
         self._use_model = False
 
+    @log_execution_time()
     def _load_onnx_model(self) -> None:
         """Lazy load ONNX model."""
         if self.model_path and not self._use_model:
@@ -161,6 +163,7 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
             print(f"Error during ONNX inference: {e}")
             raise
 
+    @log_execution_time()
     def detect(self, text: str, context: RequestContext | None = None) -> float:
         """
         Detect prompt injection in text using Ollama embeddings + ONNX model.

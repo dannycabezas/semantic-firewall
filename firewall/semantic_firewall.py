@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 TENANT_ID = os.getenv("TENANT_ID", "default")
 
-# Initialize Benchmark components (gestionados ahora por BenchmarkService)
+# Initialize Benchmark components (managed now by BenchmarkService) by default benchmarks.db
 BENCHMARK_DB_PATH = os.getenv("BENCHMARK_DB_PATH", "benchmarks.db")
 
 

@@ -42,7 +42,7 @@ class FirewallContainer(containers.DeclarativeContainer):
     # Preprocessor Adapters
     normalizer = providers.Factory(TextNormalizer)
 
-    vectorizer = providers.Factory(
+    vectorizer = providers.Singleton(
         SentenceTransformerVectorizer, model_name=config.provided.vectorizer.model
     )
 

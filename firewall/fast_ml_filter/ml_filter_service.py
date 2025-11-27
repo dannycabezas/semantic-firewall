@@ -1,16 +1,16 @@
 """Fast ML Filter service - core business logic."""
 
+import asyncio
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Dict, Optional, Tuple
 
-from fast_ml_filter.ports.heuristic_detector_port import IHeuristicDetector
-from fast_ml_filter.ports.pii_detector_port import IPIIDetector
-from fast_ml_filter.ports.prompt_injection_detector_port import \
-    IPromptInjectionDetector
-from fast_ml_filter.ports.toxicity_detector_port import IToxicityDetector
 from core.request_context import RequestContext
 from fast_ml_filter.detector_factory import DetectorFactory
+from fast_ml_filter.ports.heuristic_detector_port import IHeuristicDetector
+from fast_ml_filter.ports.pii_detector_port import IPIIDetector
+from fast_ml_filter.ports.prompt_injection_detector_port import IPromptInjectionDetector
+from fast_ml_filter.ports.toxicity_detector_port import IToxicityDetector
 
 
 @dataclass
@@ -104,9 +104,9 @@ class MLFilterService:
             heuristic_detector=heuristic_detector,
         )
 
-    def analyze(self, text: str, context: RequestContext | None = None) -> MLSignals:
+    async def analyze(self, text: str, context: RequestContext | None = None) -> MLSignals:
         """
-        Analyze text with all detectors.
+        Analyze text with all detectors in parallel.
 
         Args:
             text: Text to analyze
@@ -116,22 +116,44 @@ class MLFilterService:
         """
         start_time = time.time()
 
-        # Run all detectors with individual metrics
-        pii_start = time.time()
-        pii_score = self.pii_detector.detect(text)
-        pii_latency = (time.time() - pii_start) * 1000
-        
-        toxicity_start = time.time()
-        toxicity_score = self.toxicity_detector.detect(text)
-        toxicity_latency = (time.time() - toxicity_start) * 1000
-        
-        prompt_injection_start = time.time()
-        prompt_injection_score = self.prompt_injection_detector.detect(text, context)
-        prompt_injection_latency = (time.time() - prompt_injection_start) * 1000
-        
-        heuristic_start = time.time()
-        heuristic_result = self.heuristic_detector.detect(text)
-        heuristic_latency = (time.time() - heuristic_start) * 1000
+        # Run all detectors in parallel using asyncio.to_thread
+        async def run_pii() -> Tuple[float, float]:
+            detector_start = time.time()
+            score = await asyncio.to_thread(self.pii_detector.detect, text)
+            latency = (time.time() - detector_start) * 1000
+            return score, latency
+
+        async def run_toxicity() -> Tuple[float, float]:
+            detector_start = time.time()
+            score = await asyncio.to_thread(self.toxicity_detector.detect, text)
+            latency = (time.time() - detector_start) * 1000
+            return score, latency
+
+        async def run_prompt_injection() -> Tuple[float, float]:
+            detector_start = time.time()
+            score = await asyncio.to_thread(
+                self.prompt_injection_detector.detect, text, context
+            )
+            latency = (time.time() - detector_start) * 1000
+            return score, latency
+
+        async def run_heuristic() -> Tuple[Dict, float]:
+            detector_start = time.time()
+            result = await asyncio.to_thread(self.heuristic_detector.detect, text)
+            latency = (time.time() - detector_start) * 1000
+            return result, latency
+
+        # Execute all detectors in parallel
+        results = await asyncio.gather(
+            run_pii(),
+            run_toxicity(),
+            run_prompt_injection(),
+            run_heuristic()
+        )
+
+        (pii_score, pii_latency), (toxicity_score, toxicity_latency), \
+        (prompt_injection_score, prompt_injection_latency), \
+        (heuristic_result, heuristic_latency) = results
 
         latency_ms = (time.time() - start_time) * 1000
 
