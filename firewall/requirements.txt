@@ -1,29 +1,39 @@
+# --- Core Framework ---
 fastapi==0.121.1
 uvicorn[standard]==0.30.0
 httpx==0.28.1
 pyyaml==6.0.3
 dependency-injector==4.48.2
-sentence-transformers==5.1.2
-onnxruntime==1.23.2
-qdrant-client==1.15.1
 structlog==25.5.0
-debugpy==1.8.17
-transformers==4.51.3
-torch==2.9.0
-scipy==1.16.3
-onnxscript==0.5.6
 pydantic==2.12.4
 pydantic-settings==2.12.0
+debugpy==1.8.17
+
+# --- AI & Machine Learning Core (CRÍTICO) ---
+# Relax versions to ensure compatibility between them
+torch>=2.4.0 
+transformers>=4.45.0
+accelerate>=0.34.0         
+sentencepiece>=0.2.0       
+protobuf>=5.0.0            
+
+# --- Vector DB & Math ---
+qdrant-client==1.15.1
+numpy==1.26.4
+scipy==1.16.3
+onnxruntime==1.23.2
+onnxscript==0.5.6
+sentence-transformers==5.1.2
+
+# --- Security & Detection ---
 presidio-analyzer==2.2.358
-detoxify==0.5.2
 llm-guard==0.3.16
 
-# Benchmark dependencies
+# --- Benchmark & Testing ---
 datasets==3.2.0
 aiosqlite==0.20.0
-numpy==1.26.4
 
-# dev dependencies
+# --- Dev Tools ---
 ruff==0.14.4
 black==25.11.0
 isort==7.0.0

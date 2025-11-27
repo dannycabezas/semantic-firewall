@@ -48,7 +48,9 @@ class DetoxifyToxicityDetector(IToxicityDetector):
                     "text-classification",
                     model=self.hf_model_name,
                     device=self.device_id,
-                    top_k=None  # This ensures that we return all the labels
+                    top_k=None,  # This ensures that we return all the labels
+                    truncation=True,
+                    max_length=512,
                 )
                 print(f"Loaded Toxicity model successfully.")
             except Exception as e:

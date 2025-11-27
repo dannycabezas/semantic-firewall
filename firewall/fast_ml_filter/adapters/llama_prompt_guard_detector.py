@@ -3,6 +3,13 @@
 from fast_ml_filter.ports.prompt_injection_detector_port import IPromptInjectionDetector
 from core.request_context import RequestContext
 from core.utils.decorators import log_execution_time
+import torch
+from transformers import (
+                    pipeline, 
+                    AutoModelForSequenceClassification, 
+                    AutoTokenizer
+                )
+from os import getenv
 
 class LlamaPromptGuardDetector(IPromptInjectionDetector):
     """
@@ -23,13 +30,7 @@ class LlamaPromptGuardDetector(IPromptInjectionDetector):
         if not self._use_model:
             try:
                 # Imports for lazy loading
-                import torch
-                from transformers import (
-                    pipeline, 
-                    AutoModelForSequenceClassification, 
-                    AutoTokenizer
-                )
-                from os import getenv
+                
 
                 hf_token = getenv("HF_TOKEN")
                 if not hf_token:
