@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any, Dict, List
 
 from pydantic import BaseModel
 
@@ -13,4 +13,41 @@ class BenchmarkStartRequest(BaseModel):
     detector_config: Optional[dict[str, str]] = None
 
 
+class BenchmarkDelta(BaseModel):
+    """Delta information for a single metric."""
+
+    value: Optional[float]
+    percent: Optional[float]
+    polarity: str  # 'positive', 'negative', 'neutral'
+
+
+class BenchmarkSampleChange(BaseModel):
+    """Represents how a single sample changed between baseline and candidate."""
+
+    sample_index: int
+    input_text: str
+    expected_label: str
+    baseline_result_type: str
+    candidate_result_type: str
+    baseline_analysis: Optional[Dict[str, Any]] = None
+    candidate_analysis: Optional[Dict[str, Any]] = None
+
+
+class BenchmarkCandidateComparison(BaseModel):
+    """Comparison details for a single candidate run."""
+
+    run_id: str
+    start_time: Optional[str] = None
+    detector_config: Optional[Dict[str, Any]] = None
+    metrics: Dict[str, Any]
+    deltas: Dict[str, BenchmarkDelta]
+    sample_changes: Dict[str, Any]
+
+
+class BenchmarkComparisonResponse(BaseModel):
+    """High-level response for benchmark comparison with explicit baseline."""
+
+    dataset_info: Dict[str, Any]
+    baseline: Dict[str, Any]
+    candidates: List[BenchmarkCandidateComparison]
 

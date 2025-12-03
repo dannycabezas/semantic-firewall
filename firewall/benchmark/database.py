@@ -331,6 +331,49 @@ class BenchmarkDatabase:
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
 
+    async def get_results_by_sample_index(
+        self,
+        run_id: str,
+    ) -> Dict[int, Dict[str, Any]]:
+        """
+        Get all results for a specific run indexed by sample_index.
+
+        This is optimized for comparison between runs where we need to
+        align samples by their index.
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT sample_index,
+                       input_text,
+                       expected_label,
+                       predicted_label,
+                       result_type,
+                       analysis_details,
+                       latency_ms
+                FROM benchmark_results
+                WHERE run_id = ?
+                ORDER BY sample_index
+                """,
+                (run_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        results: Dict[int, Dict[str, Any]] = {}
+        for row in rows:
+            record = dict(row)
+            # Decode JSON analysis_details eagerly for easier downstream use
+            if record.get("analysis_details"):
+                try:
+                    record["analysis_details"] = json.loads(record["analysis_details"])
+                except Exception:
+                    # If parsing fails, keep raw string to avoid breaking comparison
+                    pass
+            results[record["sample_index"]] = record
+
+        return results
+
     async def get_metrics(self, run_id: str) -> Optional[Dict[str, Any]]:
         """Get metrics for a specific run."""
         async with aiosqlite.connect(self.db_path) as db:

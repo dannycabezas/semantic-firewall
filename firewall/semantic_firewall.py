@@ -522,6 +522,77 @@ async def get_benchmark_errors(run_id: str) -> dict[str, Any]:
         ) from e
 
 
+@benchmarks_router.get("/api/benchmarks/compare")
+async def compare_benchmarks(
+    baseline_run_id: str,
+    candidate_run_ids: str,
+) -> dict[str, Any]:
+    """
+    Compare a baseline benchmark against one or more candidate benchmarks.
+
+    Guardrails:
+    - baseline_run_id is required
+    - At least one candidate_run_id is required
+    - All runs must exist and be completed
+    - All runs must share the same dataset_name and dataset_split
+    """
+    try:
+        if not baseline_run_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="baseline_run_id is required",
+            )
+
+        if not candidate_run_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one candidate_run_id is required",
+            )
+
+        # Parse comma-separated candidate_run_ids
+        candidate_ids = [
+            run_id.strip()
+            for run_id in candidate_run_ids.split(",")
+            if run_id.strip()
+        ]
+
+        if not candidate_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No valid candidate_run_ids provided",
+            )
+
+        # Delegate heavy logic and guardrails to the service
+        comparison = await benchmark_service.compare_benchmarks(
+            baseline_run_id=baseline_run_id,
+            candidate_run_ids=candidate_ids,
+        )
+        return comparison
+    except HTTPException:
+        # Re-raise FastAPI HTTP errors as-is
+        raise
+    except KeyError as e:
+        # Run not found
+        logger.error(f"Benchmark comparison failed (missing run): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        # Guardrail violations (datasets, status, metrics missing, etc.)
+        logger.warning(f"Benchmark comparison validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        logger.error(f"Error comparing benchmarks: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error comparing benchmarks",
+        ) from e
+
+
 @benchmarks_router.get("/api/benchmarks/datasets")
 async def get_available_datasets() -> dict[str, Any]:
     """
