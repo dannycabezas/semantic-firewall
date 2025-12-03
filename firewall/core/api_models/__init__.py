@@ -9,5 +9,10 @@ from .chat import (
     PreprocessingMetrics,
     PolicyMetrics,
 )
-from .benchmarks import BenchmarkStartRequest
+from .benchmarks import (
+    BenchmarkStartRequest,
+    DatasetUploadResponse,
+    CustomDatasetInfo,
+    CustomDatasetListResponse,
+)
 

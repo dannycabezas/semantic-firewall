@@ -6,11 +6,40 @@ from pydantic import BaseModel
 class BenchmarkStartRequest(BaseModel):
     """Request to start a new benchmark."""
 
-    dataset_name: str
+    dataset_name: Optional[str] = None
     dataset_split: str = "test"
     max_samples: Optional[int] = None
     tenant_id: str = "benchmark"
     detector_config: Optional[dict[str, str]] = None
+    custom_dataset_id: Optional[str] = None
+
+
+class DatasetUploadResponse(BaseModel):
+    """Response to upload a custom dataset."""
+
+    dataset_id: str
+    name: str
+    description: Optional[str] = None
+    file_type: str
+    total_samples: int
+    created_at: str
+
+
+class CustomDatasetInfo(BaseModel):
+    """Information of a custom dataset."""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    file_type: str
+    total_samples: int
+    created_at: str
+
+
+class CustomDatasetListResponse(BaseModel):
+    """List of available custom datasets."""
+
+    datasets: List[CustomDatasetInfo]
 
 
 class BenchmarkDelta(BaseModel):

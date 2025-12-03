@@ -83,6 +83,7 @@ class LlamaPromptGuardDetector(IPromptInjectionDetector):
                 traceback.print_exc() # This will help you see if any libraries are missing
                 self._use_model = False
 
+    @log_execution_time()
     def _map_label_to_score(self, label: str, confidence: float) -> float:
         """
         Map model output label and confidence to injection score.

@@ -2560,6 +2560,193 @@ body {
   background: rgba(16, 185, 129, 0.1);
 }
 
+/* ========================================
+   Custom Dataset Selector Styles
+   ======================================== */
+
+.dataset-source-toggle {
+  display: flex;
+  gap: 0.5rem;
+  background: var(--bg-primary);
+  padding: 0.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.toggle-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.toggle-btn.active {
+  background: var(--accent-blue);
+  color: white;
+}
+
+.custom-dataset-selector {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.dataset-select {
+  flex: 1;
+  padding: 0.75rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.dataset-select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.loading-datasets {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.selected-dataset-info {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-top: 0.75rem;
+}
+
+.dataset-info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.dataset-info-row:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0.75rem;
+}
+
+.info-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.info-value {
+  color: var(--text-primary);
+}
+
+.no-datasets-message {
+  text-align: center;
+  padding: 2rem 1rem;
+  background: var(--bg-primary);
+  border: 2px dashed var(--border-color);
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+}
+
+.no-datasets-message p {
+  margin: 0 0 1rem 0;
+}
+
+/* Upload Modal Styles */
+.upload-modal {
+  max-width: 600px;
+}
+
+.upload-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.upload-format-help {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.upload-format-help h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.format-examples {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.format-example {
+  font-size: 0.85rem;
+}
+
+.format-example strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--accent-cyan);
+}
+
+.format-example pre {
+  background: var(--bg-tertiary);
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+/* File input styling */
+input[type="file"] {
+  padding: 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+input[type="file"]::-webkit-file-upload-button {
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  margin-right: 0.75rem;
+}
+
+input[type="file"]::-webkit-file-upload-button:hover {
+  background: #2563eb;
+}
+
 /* Truncated Text */
 .truncated-text-container {
   display: flex;

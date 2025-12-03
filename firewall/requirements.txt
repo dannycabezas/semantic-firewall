@@ -8,6 +8,7 @@ structlog==25.5.0
 pydantic==2.12.4
 pydantic-settings==2.12.0
 debugpy==1.8.17
+python-multipart==0.0.20
 
 # --- AI & Machine Learning Core (CRÍTICO) ---
 # Relax versions to ensure compatibility between them
@@ -32,6 +33,9 @@ llm-guard==0.3.16
 # --- Benchmark & Testing ---
 datasets==3.2.0
 aiosqlite==0.20.0
+
+# --- Storage ---
+minio>=7.2.0
 
 # --- Dev Tools ---
 ruff==0.14.4

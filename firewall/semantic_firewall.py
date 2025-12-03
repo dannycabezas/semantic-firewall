@@ -12,6 +12,9 @@ from fastapi import (
     WebSocketDisconnect,
     status,
     Request,
+    UploadFile,
+    File,
+    Form,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from benchmark.dataset_loader import DatasetLoader
@@ -26,6 +29,8 @@ from core.api_models import (
     PreprocessingMetrics,
     PolicyMetrics,
     BenchmarkStartRequest,
+    DatasetUploadResponse,
+    CustomDatasetListResponse,
 )
 from fast_ml_filter.detector_factory import DetectorFactory
 
@@ -344,6 +349,7 @@ async def start_benchmark(request: BenchmarkStartRequest) -> dict[str, Any]:
             max_samples=request.max_samples,
             tenant_id=request.tenant_id,
             detector_config=request.detector_config,
+            custom_dataset_id=request.custom_dataset_id,
         )
         
         return {
@@ -593,23 +599,115 @@ async def compare_benchmarks(
         ) from e
 
 
-@benchmarks_router.get("/api/benchmarks/datasets")
-async def get_available_datasets() -> dict[str, Any]:
+@benchmarks_router.post(
+    "/api/benchmarks/datasets/upload",
+    response_model=DatasetUploadResponse,
+)
+async def upload_custom_dataset(
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+) -> DatasetUploadResponse:
     """
-    Get list of available predefined datasets.
-    
-    Returns:
-        List of datasets with metadata
+    Upload a new custom dataset for benchmarks.
+
+    Accepts CSV or JSON files with the following structure:
+    - column/field \"prompt\"
+    - column/field \"type\" (\"benign\" or \"jailbreak\")
     """
     try:
+        content_type = file.content_type or ""
+        if content_type not in {"text/csv", "application/json"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported file type: {content_type}. Use CSV or JSON.",
+            )
+
+        file_bytes = await file.read()
+        if not file_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty",
+            )
+
+        # Validar estructura y obtener total de samples usando DatasetLoader
         loader = DatasetLoader()
-        datasets = loader.get_available_datasets()
-        return {"datasets": datasets, "count": len(datasets)}
+        samples = loader.load_custom_dataset_from_content(
+            content=file_bytes,
+            file_type=content_type,
+            max_samples=None,
+        )
+
+        dataset_id, created = await benchmark_service.register_custom_dataset(
+            name=name,
+            description=description,
+            file_content=file_bytes,
+            file_type=content_type,
+            total_samples=len(samples),
+        )
+
+        return DatasetUploadResponse(
+            dataset_id=dataset_id,
+            name=name,
+            description=description,
+            file_type=content_type,
+            total_samples=len(samples),
+            created_at=created,
+        )
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error getting available datasets: {e}")
+        logger.error(f"Error uploading custom dataset: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error retrieving available datasets"
+            detail="Error uploading custom dataset",
+        ) from e
+
+
+@benchmarks_router.get(
+    "/api/benchmarks/datasets",
+    response_model=CustomDatasetListResponse,
+)
+async def list_custom_datasets(
+    limit: int = 100,
+    offset: int = 0,
+) -> CustomDatasetListResponse:
+    """List available custom datasets."""
+    try:
+        datasets = await benchmark_service.list_custom_datasets(
+            limit=limit,
+            offset=offset,
+        )
+        return CustomDatasetListResponse(datasets=datasets)
+    except Exception as e:
+        logger.error(f"Error listing custom datasets: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error listing custom datasets",
+        ) from e
+
+
+@benchmarks_router.delete("/api/benchmarks/datasets/{dataset_id}")
+async def delete_custom_dataset(dataset_id: str) -> dict[str, Any]:
+    """
+    Delete a custom dataset.
+
+    Note: this does not affect already executed benchmarks; it only deletes
+    the file in MinIO and the metadata.
+    """
+    try:
+        await benchmark_service.delete_custom_dataset(dataset_id)
+        return {"message": "Custom dataset deleted successfully"}
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+    except Exception as e:
+        logger.error(f"Error deleting custom dataset: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error deleting custom dataset",
         ) from e
 
 

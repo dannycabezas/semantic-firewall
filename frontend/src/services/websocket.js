@@ -121,3 +121,46 @@ export async function fetchAPI(endpoint, options = {}) {
   }
   return await response.json();
 }
+
+// ========================================
+// Custom Dataset API Functions
+// ========================================
+
+/**
+ * Upload a custom dataset (CSV or JSON)
+ * @param {FormData} formData - FormData with 'name', 'description' (optional), and 'file'
+ * @returns {Promise} - Dataset metadata including dataset_id
+ */
+export async function uploadCustomDataset(formData) {
+  const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
+  const response = await fetch(`${BASE}/api/benchmarks/datasets/upload`, {
+    method: 'POST',
+    body: formData, // No Content-Type header - browser sets it with boundary
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+  return await response.json();
+}
+
+/**
+ * List all custom datasets
+ * @param {number} limit - Max datasets to return
+ * @param {number} offset - Offset for pagination
+ * @returns {Promise} - List of datasets
+ */
+export async function listCustomDatasets(limit = 100, offset = 0) {
+  return await fetchAPI(`/api/benchmarks/datasets?limit=${limit}&offset=${offset}`);
+}
+
+/**
+ * Delete a custom dataset
+ * @param {string} datasetId - Dataset ID to delete
+ * @returns {Promise} - Deletion result
+ */
+export async function deleteCustomDataset(datasetId) {
+  return await fetchAPI(`/api/benchmarks/datasets/${datasetId}`, {
+    method: 'DELETE',
+  });
+}

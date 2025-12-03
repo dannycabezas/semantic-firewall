@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from enum import Enum
 from typing import Optional, Dict, Any, List
 
 from benchmark.database import BenchmarkDatabase
 from benchmark.benchmark_runner import BenchmarkRunner
+from benchmark.minio_storage import MinioDatasetStorage
 from core.gateway import get_default_gateway, create_gateway_orchestrator
 
 
@@ -36,6 +38,7 @@ class BenchmarkService:
         # The runner is initialized in `initialize` because it needs the DB initialized
         self._runner: Optional[BenchmarkRunner] = None
         self._db_path = db_path
+        self._storage = MinioDatasetStorage()
 
     @property
     def database(self) -> BenchmarkDatabase:
@@ -60,14 +63,18 @@ class BenchmarkService:
 
     async def start_benchmark(
         self,
-        dataset_name: str,
+        dataset_name: Optional[str],
         dataset_split: str = "test",
         max_samples: Optional[int] = None,
         tenant_id: str = "benchmark",
         detector_config: Optional[Dict[str, str]] = None,
+        custom_dataset_id: Optional[str] = None,
     ) -> str:
         if not self._runner:
             raise RuntimeError("Benchmark system not initialized")
+
+        if not dataset_name and not custom_dataset_id:
+            raise ValueError("Either dataset_name or custom_dataset_id must be provided")
 
         run_id = await self._runner.start_benchmark(
             dataset_name=dataset_name,
@@ -75,8 +82,93 @@ class BenchmarkService:
             max_samples=max_samples,
             tenant_id=tenant_id,
             model_config=detector_config,
+            custom_dataset_id=custom_dataset_id,
         )
         return run_id
+
+    # ------------------------------------------------------------------
+    # Custom datasets management
+    # ------------------------------------------------------------------
+
+    async def register_custom_dataset(
+        self,
+        name: str,
+        description: Optional[str],
+        file_content: bytes,
+        file_type: str,
+        total_samples: int,
+    ) -> tuple[str, str]:
+        """
+        Register a new custom dataset:
+        - Upload file to MinIO
+        - Save metadata in the database
+
+        Returns (dataset_id, created_at).
+        """
+        dataset_id = str(uuid.uuid4())
+        file_ext = "csv" if file_type == "text/csv" else "json"
+        file_key = f"datasets/{dataset_id}.{file_ext}"
+
+        from io import BytesIO
+
+        # Upload to MinIO
+        self._storage.upload_dataset(
+            file_key=file_key,
+            file_obj=BytesIO(file_content),
+            length=len(file_content),
+            content_type=file_type,
+        )
+
+        # Save metadata
+        await self._database.save_dataset_metadata(
+            dataset_id=dataset_id,
+            name=name,
+            description=description,
+            file_key=file_key,
+            file_type=file_type,
+            total_samples=total_samples,
+        )
+
+        meta = await self._database.get_dataset_metadata(dataset_id)
+        created_at = meta["created_at"] if meta else ""
+        return dataset_id, created_at
+
+    async def list_custom_datasets(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Dict[str, Any]]:
+        """List available custom datasets (for the API)."""
+        datasets = await self._database.list_datasets(limit=limit, offset=offset)
+        return [
+            {
+                "id": d["id"],
+                "name": d["name"],
+                "description": d.get("description"),
+                "file_type": d["file_type"],
+                "total_samples": d["total_samples"],
+                "created_at": d["created_at"],
+            }
+            for d in datasets
+        ]
+
+    async def delete_custom_dataset(self, dataset_id: str) -> None:
+        """
+        Delete a custom dataset:
+        - Delete the file from MinIO if it exists
+        - Delete the metadata from the database
+
+        Does not affect benchmarks that already used that dataset.
+        """
+        meta = await self._database.get_dataset_metadata(dataset_id)
+        if not meta:
+            raise KeyError("Dataset not found")
+
+        file_key = meta["file_key"]
+        if self._storage.dataset_exists(file_key):
+            self._storage.delete_dataset(file_key)
+
+        await self._database.delete_dataset_metadata(dataset_id)
 
     async def get_status(self, run_id: str) -> Dict[str, Any]:
         if not self._runner:

@@ -71,6 +71,24 @@ class BenchmarkDatabase:
                 )
             """)
 
+            # Custom datasets metadata
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS custom_datasets (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    file_key TEXT NOT NULL,
+                    file_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    total_samples INTEGER NOT NULL
+                )
+            """)
+
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_custom_datasets_created_at
+                ON custom_datasets(created_at DESC)
+            """)
+
             # Create indices for better query performance
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_results_run_id 
@@ -85,6 +103,75 @@ class BenchmarkDatabase:
                 ON benchmark_runs(status)
             """)
 
+            await db.commit()
+
+    # ------------------------------------------------------------------
+    # Custom datasets metadata
+    # ------------------------------------------------------------------
+
+    async def save_dataset_metadata(
+        self,
+        dataset_id: str,
+        name: str,
+        description: Optional[str],
+        file_key: str,
+        file_type: str,
+        total_samples: int,
+    ) -> None:
+        """Guardar metadatos de un dataset personalizado."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO custom_datasets
+                    (id, name, description, file_key, file_type, created_at, total_samples)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    dataset_id,
+                    name,
+                    description,
+                    file_key,
+                    file_type,
+                    datetime.utcnow().isoformat(),
+                    total_samples,
+                ),
+            )
+            await db.commit()
+
+    async def get_dataset_metadata(self, dataset_id: str) -> Optional[Dict[str, Any]]:
+        """Obtener metadatos de un dataset personalizado por id."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM custom_datasets WHERE id = ?", (dataset_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return dict(row)
+        return None
+
+    async def list_datasets(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """Listar datasets personalizados disponibles."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT * FROM custom_datasets
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    async def delete_dataset_metadata(self, dataset_id: str) -> None:
+        """Eliminar metadatos de un dataset personalizado (no afecta runs existentes)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "DELETE FROM custom_datasets WHERE id = ?",
+                (dataset_id,),
+            )
             await db.commit()
 
     async def create_run(

@@ -42,11 +42,12 @@ class BenchmarkRunner:
     
     async def start_benchmark(
         self,
-        dataset_name: str,
+        dataset_name: Optional[str],
         dataset_split: str = "test",
         max_samples: Optional[int] = None,
         tenant_id: str = "benchmark",
-        model_config: Optional[Dict[str, str]] = None
+        model_config: Optional[Dict[str, str]] = None,
+        custom_dataset_id: Optional[str] = None,
     ) -> str:
         """
         Start a new benchmark run.
@@ -62,15 +63,44 @@ class BenchmarkRunner:
         """
         run_id = str(uuid.uuid4())
         
-        logger.info(f"Starting benchmark {run_id}: {dataset_name} ({dataset_split})")
-        
+        logger.info(
+            "Starting benchmark %s: dataset_name=%s, custom_dataset_id=%s, split=%s",
+            run_id,
+            dataset_name,
+            custom_dataset_id,
+            dataset_split,
+        )
+
         # Load dataset samples
         try:
-            samples = await self.dataset_loader.load_dataset_samples(
-                dataset_name=dataset_name,
-                split=dataset_split,
-                max_samples=max_samples
-            )
+            if custom_dataset_id:
+                # Load metadata and file from DB/MinIO
+                meta = await self.database.get_dataset_metadata(custom_dataset_id)
+                if not meta:
+                    raise ValueError(f"Custom dataset not found: {custom_dataset_id}")
+
+                from benchmark.minio_storage import MinioDatasetStorage
+
+                storage = MinioDatasetStorage()
+                obj = storage.download_dataset(meta["file_key"])
+                content = obj.read()
+                obj.close()
+
+                samples = self.dataset_loader.load_custom_dataset_from_content(
+                    content=content,
+                    file_type=meta["file_type"],
+                    max_samples=max_samples,
+                )
+                dataset_name_for_run = meta["name"]
+                dataset_source = "custom"
+            else:
+                samples = await self.dataset_loader.load_dataset_samples(
+                    dataset_name=dataset_name,
+                    split=dataset_split,
+                    max_samples=max_samples,
+                )
+                dataset_name_for_run = dataset_name
+                dataset_source = "huggingface"
         except Exception as e:
             logger.error(f"Failed to load dataset: {e}")
             raise
@@ -80,18 +110,20 @@ class BenchmarkRunner:
         
         # Create benchmark run in database
         config_snapshot = {
-            "dataset_name": dataset_name,
+            "dataset_name": dataset_name_for_run,
             "dataset_split": dataset_split,
             "max_samples": max_samples,
             "tenant_id": tenant_id,
             "detector_config": model_config,  # Store as detector_config for consistency
+            "dataset_source": dataset_source,
+            "custom_dataset_id": custom_dataset_id,
             "timestamp": datetime.utcnow().isoformat()
         }
         
         await self.database.create_run(
             run_id=run_id,
-            dataset_name=dataset_name,
-            dataset_source="huggingface",
+            dataset_name=dataset_name_for_run,
+            dataset_source=dataset_source,
             dataset_split=dataset_split,
             config_snapshot=config_snapshot,
             total_samples=len(samples)
