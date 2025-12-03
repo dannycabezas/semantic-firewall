@@ -18,9 +18,17 @@ export default function Dashboard() {
   const handleWebSocketMessage = useCallback((data) => {
     // Add new request to the list
     if (data.id && data.timestamp) {
+      console.log('[Dashboard] Received new request event:', data.id)
       setRequests(prev => {
+        // Avoid duplicates by checking if the ID already exists
+        const exists = prev.some(req => req.id === data.id)
+        if (exists) {
+          console.log('[Dashboard] Request already exists, skipping:', data.id)
+          return prev
+        }
+        
         const newRequests = [...prev, data]
-        // Keep only last 100 requests in memory
+        // Keep only the last 100 requests in memory
         return newRequests.slice(-100)
       })
 
@@ -71,6 +79,11 @@ export default function Dashboard() {
       console.error('Error loading recent requests:', err)
     }
   }
+
+  // Function to manually refresh requests (can be called from SimplifiedChat)
+  const refreshRequests = useCallback(async () => {
+    await loadRecentRequests()
+  }, [])
 
   if (!initialLoadComplete) {
     return (
@@ -142,7 +155,7 @@ export default function Dashboard() {
 
         {/* Right Column - Chat Sidebar */}
         <div className="dashboard-sidebar">
-          <SimplifiedChat />
+          <SimplifiedChat onMessageSent={refreshRequests} />
         </div>
       </div>
 

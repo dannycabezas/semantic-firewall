@@ -1,7 +1,10 @@
-"""Dataset loader for Hugging Face datasets with normalization."""
+"""Dataset loader for Hugging Face datasets with normalization y datasets custom."""
 
 from datasets import load_dataset
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Iterable
+import csv
+import io
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,7 +20,7 @@ class DatasetSample:
 
 
 class DatasetLoader:
-    """Loads and normalizes datasets from Hugging Face Hub."""
+    """Carga y normaliza datasets desde Hugging Face o fuentes personalizadas."""
     
     # Mapping configurations for different dataset formats
     DATASET_MAPPINGS = {
@@ -95,6 +98,79 @@ class DatasetLoader:
         except Exception as e:
             logger.error(f"Error loading dataset {dataset_name}: {e}")
             raise
+
+    # ------------------------------------------------------------------
+    # Datasets personalizados
+    # ------------------------------------------------------------------
+
+    def parse_file(
+        self,
+        content: bytes,
+        file_type: str,
+        max_samples: Optional[int] = None,
+    ) -> List[DatasetSample]:
+        """
+        Parsear un archivo CSV/JSON de dataset custom y devolver samples normalizados.
+
+        Requiere columnas/campos:
+        - \"prompt\": texto del prompt
+        - \"type\": \"benign\" o \"jailbreak\"
+        """
+        text = content.decode("utf-8")
+        rows: Iterable[Dict[str, Any]]
+
+        if file_type == "text/csv":
+            reader = csv.DictReader(io.StringIO(text))
+            rows = list(reader)
+        elif file_type == "application/json":
+            data = json.loads(text)
+            if isinstance(data, dict):
+                # permitir formato {\"data\": [...]} si fuera necesario
+                data = data.get("data", [])
+            if not isinstance(data, list):
+                raise ValueError("El JSON de dataset debe ser una lista de objetos")
+            rows = data
+        else:
+            raise ValueError(f"Tipo de archivo de dataset no soportado: {file_type}")
+
+        samples: List[DatasetSample] = []
+        limit = min(max_samples, len(rows)) if max_samples else len(rows)
+
+        for idx, row in enumerate(rows[:limit]):
+            prompt = row.get("prompt")
+            label = row.get("type")
+
+            if prompt is None or label is None:
+                logger.warning("Fila de dataset custom sin 'prompt' o 'type': %s", row)
+                continue
+
+            label_normalized = str(label).lower().strip()
+            if label_normalized not in {"benign", "jailbreak"}:
+                logger.warning("Valor de 'type' no válido en dataset custom: %s", label)
+                continue
+
+            samples.append(
+                DatasetSample(
+                    prompt=str(prompt).strip(),
+                    expected_label=label_normalized,
+                    index=idx,
+                )
+            )
+
+        if not samples:
+            raise ValueError("El dataset custom no contiene filas válidas")
+
+        logger.info("Dataset custom parseado correctamente con %s samples", len(samples))
+        return samples
+
+    def load_custom_dataset_from_content(
+        self,
+        content: bytes,
+        file_type: str,
+        max_samples: Optional[int] = None,
+    ) -> List[DatasetSample]:
+        """Conveniencia: parsear contenido de archivo y devolver samples."""
+        return self.parse_file(content=content, file_type=file_type, max_samples=max_samples)
     
     def _get_mapping(self, dataset_name: str, dataset) -> Dict[str, Any]:
         """Get or infer mapping configuration for the dataset."""

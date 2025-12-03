@@ -4,12 +4,19 @@ import BenchmarkExecutor from './BenchmarkExecutor'
 import BenchmarkHistory from './BenchmarkHistory'
 import BenchmarkMetricsView from './BenchmarkMetricsView'
 import ErrorAnalysisView from './ErrorAnalysisView'
+import BenchmarkComparison from './BenchmarkComparison'
 
 export default function BenchmarkDashboard() {
   const [activeTab, setActiveTab] = useState('executor')
   const [selectedRunId, setSelectedRunId] = useState(null)
   const [runStatus, setRunStatus] = useState(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [comparisonSelection, setComparisonSelection] = useState({
+    baselineRunId: null,
+    selectedRunIds: [],
+    datasetName: null,
+    datasetSplit: null
+  })
 
   // Poll for status updates when a run is active
   useEffect(() => {
@@ -52,6 +59,17 @@ export default function BenchmarkDashboard() {
     setSelectedRunId(runId)
     setRunStatus(null)
     setActiveTab('metrics')
+  }
+
+  const handleSelectionChange = (selection) => {
+    setComparisonSelection(selection)
+  }
+
+  const handleRequestCompare = (selection) => {
+    setComparisonSelection(selection)
+    if (selection.baselineRunId && selection.selectedRunIds.length >= 2) {
+      setActiveTab('compare')
+    }
   }
 
   const handleCancelBenchmark = async () => {
@@ -133,6 +151,17 @@ export default function BenchmarkDashboard() {
         >
           🔍 Error Analysis
         </button>
+        <button
+          className={`tab-btn ${activeTab === 'compare' ? 'active' : ''}`}
+          onClick={() => setActiveTab('compare')}
+          disabled={
+            !comparisonSelection.baselineRunId ||
+            !comparisonSelection.selectedRunIds ||
+            comparisonSelection.selectedRunIds.length < 2
+          }
+        >
+          📊 Compare
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -145,6 +174,8 @@ export default function BenchmarkDashboard() {
           <BenchmarkHistory 
             onSelectRun={handleSelectRun}
             refreshTrigger={refreshTrigger}
+            onSelectionChange={handleSelectionChange}
+            onRequestCompare={handleRequestCompare}
           />
         )}
 
@@ -155,6 +186,22 @@ export default function BenchmarkDashboard() {
         {activeTab === 'errors' && selectedRunId && (
           <ErrorAnalysisView runId={selectedRunId} />
         )}
+
+        {activeTab === 'compare' &&
+          comparisonSelection.baselineRunId &&
+          comparisonSelection.selectedRunIds &&
+          comparisonSelection.selectedRunIds.length >= 2 && (
+            <BenchmarkComparison
+              baselineRunId={comparisonSelection.baselineRunId}
+              candidateRunIds={comparisonSelection.selectedRunIds.filter(
+                (id) => id !== comparisonSelection.baselineRunId
+              )}
+              datasetInfo={{
+                dataset_name: comparisonSelection.datasetName,
+                dataset_split: comparisonSelection.datasetSplit
+              }}
+            />
+          )}
 
         {activeTab === 'status' && runStatus && (
           <div className="status-view">

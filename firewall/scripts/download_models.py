@@ -63,37 +63,6 @@ def download_huggingface_models():
     return success_count == len(models)
 
 
-def download_detoxify_models():
-    """Download Detoxify models."""
-    try:
-        from detoxify import Detoxify
-    except ImportError:
-        logger.error("detoxify library not installed")
-        return False
-    
-    logger.info("=" * 70)
-    logger.info("DOWNLOADING DETOXIFY MODELS")
-    logger.info("=" * 70)
-    
-    variants = ["original"]  # Can add: "unbiased", "multilingual"
-    
-    success_count = 0
-    for variant in variants:
-        logger.info(f"Downloading Detoxify {variant} model")
-        try:
-            # This downloads the model to cache
-            model = Detoxify(variant)
-            del model  # Free memory
-            
-            logger.info(f"✓ Successfully downloaded: Detoxify {variant}")
-            success_count += 1
-            
-        except Exception as e:
-            logger.error(f"✗ Failed to download Detoxify {variant}: {e}")
-    
-    logger.info(f"\nDetoxify Models: {success_count}/{len(variants)} downloaded successfully")
-    return success_count == len(variants)
-
 
 def download_presidio_models():
     """Download Presidio models (SpaCy)."""
@@ -149,8 +118,6 @@ def main():
     # Download HuggingFace models
     results['huggingface'] = download_huggingface_models()
     
-    # Download Detoxify models
-    results['detoxify'] = download_detoxify_models()
     
     # Download Presidio/SpaCy models
     results['presidio'] = download_presidio_models()

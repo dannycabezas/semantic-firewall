@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { sendMessage } from '../services/api.js'
 import ModelSelector from './ModelSelector.jsx'
 
-export default function SimplifiedChat() {
+export default function SimplifiedChat({ onMessageSent }) {
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState([
     { sender: 'bot', text: 'Hello! I am protected by SPG Semantic Firewall.' }
@@ -10,12 +10,20 @@ export default function SimplifiedChat() {
   const [loading, setLoading] = useState(false)
   const [modelConfig, setModelConfig] = useState(null)
   const scroller = useRef(null)
+  const inputRef = useRef(null)
 
   useEffect(() => {
     if (scroller.current) {
       scroller.current.scrollTop = scroller.current.scrollHeight
     }
   }, [messages])
+
+  // Focus the input when the component is mounted
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [])
 
   const handleSend = async () => {
     const text = input.trim()
@@ -29,14 +37,12 @@ export default function SimplifiedChat() {
       const res = await sendMessage(text, modelConfig)
       
       if (res.blocked) {
-        // Generic block message without metrics
         setMessages(m => [...m, { 
           sender: 'bot', 
           text: '🛡️ Content not allowed by security policies',
           isBlocked: true
         }])
       } else if (res.reply) {
-        // Simple reply without metrics
         setMessages(m => [...m, { 
           sender: 'bot', 
           text: res.reply
@@ -47,6 +53,15 @@ export default function SimplifiedChat() {
           text: 'Unexpected server response.' 
         }])
       }
+      
+      // Notify the Dashboard to refresh the requests
+      // This ensures immediate update in addition to the WebSocket
+      if (onMessageSent) {
+        // Small delay to ensure the backend has processed the event
+        setTimeout(() => {
+          onMessageSent()
+        }, 500)
+      }
     } catch (err) {
       setMessages(m => [...m, { 
         sender: 'bot', 
@@ -54,6 +69,12 @@ export default function SimplifiedChat() {
       }])
     } finally {
       setLoading(false)
+      // Focus the input after sending
+      if (inputRef.current) {
+        setTimeout(() => {
+          inputRef.current?.focus()
+        }, 0)
+      }
     }
   }
 
@@ -85,6 +106,7 @@ export default function SimplifiedChat() {
       
       <div className="chat-input-row">
         <input 
+          ref={inputRef}
           type="text" 
           value={input} 
           onChange={e => setInput(e.target.value)} 

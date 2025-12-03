@@ -71,6 +71,24 @@ class BenchmarkDatabase:
                 )
             """)
 
+            # Custom datasets metadata
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS custom_datasets (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    file_key TEXT NOT NULL,
+                    file_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    total_samples INTEGER NOT NULL
+                )
+            """)
+
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_custom_datasets_created_at
+                ON custom_datasets(created_at DESC)
+            """)
+
             # Create indices for better query performance
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_results_run_id 
@@ -85,6 +103,75 @@ class BenchmarkDatabase:
                 ON benchmark_runs(status)
             """)
 
+            await db.commit()
+
+    # ------------------------------------------------------------------
+    # Custom datasets metadata
+    # ------------------------------------------------------------------
+
+    async def save_dataset_metadata(
+        self,
+        dataset_id: str,
+        name: str,
+        description: Optional[str],
+        file_key: str,
+        file_type: str,
+        total_samples: int,
+    ) -> None:
+        """Guardar metadatos de un dataset personalizado."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO custom_datasets
+                    (id, name, description, file_key, file_type, created_at, total_samples)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    dataset_id,
+                    name,
+                    description,
+                    file_key,
+                    file_type,
+                    datetime.utcnow().isoformat(),
+                    total_samples,
+                ),
+            )
+            await db.commit()
+
+    async def get_dataset_metadata(self, dataset_id: str) -> Optional[Dict[str, Any]]:
+        """Obtener metadatos de un dataset personalizado por id."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM custom_datasets WHERE id = ?", (dataset_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return dict(row)
+        return None
+
+    async def list_datasets(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """Listar datasets personalizados disponibles."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT * FROM custom_datasets
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    async def delete_dataset_metadata(self, dataset_id: str) -> None:
+        """Eliminar metadatos de un dataset personalizado (no afecta runs existentes)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "DELETE FROM custom_datasets WHERE id = ?",
+                (dataset_id,),
+            )
             await db.commit()
 
     async def create_run(
@@ -182,6 +269,66 @@ class BenchmarkDatabase:
             ))
             await db.commit()
 
+    async def save_results_batch(
+        self,
+        results: List[Dict[str, Any]]
+    ):
+        """
+        Save multiple benchmark results in a single transaction.
+        
+        Args:
+            results: List of result dictionaries with keys:
+                - run_id, sample_index, input_text, expected_label, predicted_label,
+                  is_correct, result_type, analysis_details, latency_ms
+        """
+        if not results:
+            return
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            created_at = datetime.utcnow().isoformat()
+            
+            # Prepare batch data
+            batch_data = []
+            for result in results:
+                batch_data.append((
+                    result["run_id"],
+                    result["sample_index"],
+                    result["input_text"],
+                    result["expected_label"],
+                    result["predicted_label"],
+                    1 if result["is_correct"] else 0,
+                    result["result_type"],
+                    json.dumps(result["analysis_details"]),
+                    result["latency_ms"],
+                    created_at
+                ))
+            
+            # Execute batch insert
+            await db.executemany("""
+                INSERT INTO benchmark_results
+                (run_id, sample_index, input_text, expected_label, predicted_label,
+                 is_correct, result_type, analysis_details, latency_ms, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, batch_data)
+            
+            await db.commit()
+
+    async def update_processed_samples_batch(self, run_id: str, count: int):
+        """
+        Increment the processed samples counter by a specific count.
+        
+        Args:
+            run_id: Benchmark run ID
+            count: Number of samples to add to processed count
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE benchmark_runs 
+                SET processed_samples = processed_samples + ?
+                WHERE id = ?
+            """, (count, run_id))
+            await db.commit()
+
     async def save_metrics(
         self,
         run_id: str,
@@ -270,6 +417,49 @@ class BenchmarkDatabase:
             async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
+
+    async def get_results_by_sample_index(
+        self,
+        run_id: str,
+    ) -> Dict[int, Dict[str, Any]]:
+        """
+        Get all results for a specific run indexed by sample_index.
+
+        This is optimized for comparison between runs where we need to
+        align samples by their index.
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT sample_index,
+                       input_text,
+                       expected_label,
+                       predicted_label,
+                       result_type,
+                       analysis_details,
+                       latency_ms
+                FROM benchmark_results
+                WHERE run_id = ?
+                ORDER BY sample_index
+                """,
+                (run_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+        results: Dict[int, Dict[str, Any]] = {}
+        for row in rows:
+            record = dict(row)
+            # Decode JSON analysis_details eagerly for easier downstream use
+            if record.get("analysis_details"):
+                try:
+                    record["analysis_details"] = json.loads(record["analysis_details"])
+                except Exception:
+                    # If parsing fails, keep raw string to avoid breaking comparison
+                    pass
+            results[record["sample_index"]] = record
+
+        return results
 
     async def get_metrics(self, run_id: str) -> Optional[Dict[str, Any]]:
         """Get metrics for a specific run."""

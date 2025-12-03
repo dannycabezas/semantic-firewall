@@ -5,6 +5,7 @@ import requests
 from typing import Optional, Dict, Any
 from fast_ml_filter.ports.prompt_injection_detector_port import IPromptInjectionDetector
 from core.request_context import RequestContext
+from core.utils.decorators import log_execution_time
 
 
 class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
@@ -33,6 +34,7 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
         self._onnx_model = None
         self._use_model = False
 
+    @log_execution_time()
     def _load_onnx_model(self) -> None:
         """Lazy load ONNX model."""
         if self.model_path and not self._use_model:
@@ -49,6 +51,7 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
                 print(f"Failed to load ONNX model: {e}. Using fallback.")
                 self._use_model = False
 
+    @log_execution_time()
     def _format_text_with_context(
         self, text: str, context: RequestContext | None = None
     ) -> str:
@@ -75,6 +78,7 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
         )
 
 
+    @log_execution_time()
     def _get_ollama_embedding(self, text: str) -> Optional[np.ndarray]:
         """
         Get embedding from Ollama API.
@@ -117,6 +121,7 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
         return exp_logits / np.sum(exp_logits, axis=-1, keepdims=True)
 
 
+    @log_execution_time()
     def _run_onnx_inference(self, embedding: np.ndarray) -> float:
         """
         Run ONNX model inference on embedding.
@@ -161,6 +166,7 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
             print(f"Error during ONNX inference: {e}")
             raise
 
+    @log_execution_time()
     def detect(self, text: str, context: RequestContext | None = None) -> float:
         """
         Detect prompt injection in text using Ollama embeddings + ONNX model.

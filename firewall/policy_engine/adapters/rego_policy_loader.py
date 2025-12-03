@@ -4,6 +4,7 @@ import os
 from typing import Any, Dict
 
 from policy_engine.ports.policy_loader_port import IPolicyLoader
+from core.utils.decorators import log_execution_time
 
 
 class RegoPolicyLoader(IPolicyLoader):
@@ -18,6 +19,7 @@ class RegoPolicyLoader(IPolicyLoader):
         """
         self.policies_path = policies_path
 
+    @log_execution_time()
     def load(self) -> Dict[str, Any]:
         """
         Load policies from Rego file.

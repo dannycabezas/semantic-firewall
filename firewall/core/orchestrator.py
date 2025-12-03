@@ -7,6 +7,7 @@ from core.analyzer import AnalysisDirection, AnalysisResult, FirewallAnalyzer
 from core.backend_proxy import BackendProxyService
 from core.exceptions import BackendError, ContentBlockedException
 from core.request_context import RequestContext
+from core.utils.decorators import log_execution_time
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class FirewallOrchestrator:
         self._proxy = proxy
         self._orchestrator = orchestrator
 
+    @log_execution_time()
     async def process_chat_request(
         self,
         message: str,
@@ -69,7 +71,7 @@ class FirewallOrchestrator:
 
         try:
             # === INGRESS ANALYSIS ===
-            analysis_result = self._analyze_with_orchestration(
+            analysis_result = await self._analyze_with_orchestration(
                 content=message,
                 direction=AnalysisDirection.INGRESS,
                 request_id=request_id,
@@ -88,7 +90,7 @@ class FirewallOrchestrator:
             if analyze_egress:
                 reply = backend_response.get("reply", "")
                 if reply:
-                    self._analyze_with_orchestration(
+                    await self._analyze_with_orchestration(
                         content=reply,
                         direction=AnalysisDirection.EGRESS,
                         request_id=f"{request_id}_egress",
@@ -146,7 +148,9 @@ class FirewallOrchestrator:
             )
             raise
 
-    def _analyze_with_orchestration(
+    
+    @log_execution_time()
+    async def _analyze_with_orchestration(
         self,
         content: str,
         direction: AnalysisDirection,
@@ -168,7 +172,7 @@ class FirewallOrchestrator:
             ContentBlockedException: If the content is blocked
         """
         try:
-            result = self._analyzer.analyze_content(
+            result = await self._analyzer.analyze_content(
                 content=content,
                 direction=direction,
                 store=False,
@@ -212,6 +216,7 @@ class FirewallOrchestrator:
 
             raise
 
+    @log_execution_time()
     async def _proxy_with_error_handling(
         self,
         message: str,

@@ -1,6 +1,7 @@
 """Presidio-based PII detector adapter."""
 
 from fast_ml_filter.ports.pii_detector_port import IPIIDetector
+from core.utils.decorators import log_execution_time
 
 
 class PresidioPIIDetector(IPIIDetector):
@@ -12,13 +13,21 @@ class PresidioPIIDetector(IPIIDetector):
         self._available = False
         self._init_presidio()
 
+    @log_execution_time()
     def _init_presidio(self):
         """Initialize Presidio analyzer."""
         try:
-            from presidio_analyzer import AnalyzerEngine
+            from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
 
             print("Loading Presidio PII detector...")
-            self._analyzer = AnalyzerEngine()
+            registry = RecognizerRegistry()
+            registry.load_predefined_recognizers(languages=["en"])
+
+            # Initialize the engine with this specific registry
+            self._analyzer = AnalyzerEngine(
+                registry=registry, 
+                supported_languages=["en"]
+            )
             self._available = True
             print("✅ Presidio PII detector initialized")
         except ImportError:
@@ -30,6 +39,7 @@ class PresidioPIIDetector(IPIIDetector):
             print(f"⚠️ Failed to initialize Presidio: {e}")
             self._available = False
 
+    @log_execution_time()
     def detect(self, text: str) -> float:
         """
         Detect PII in text using Presidio.
