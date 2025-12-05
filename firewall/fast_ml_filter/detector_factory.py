@@ -112,6 +112,8 @@ class DetectorFactory:
                 ollama_base_url=self.config.ml.ollama_base_url,
                 ollama_model=self.config.ml.ollama_model,
                 threshold=self.config.ml.prompt_injection_threshold,
+                use_local_embeddings=self.config.ml.use_local_embeddings,
+                local_embedding_model=self.config.ml.local_embedding_model,
             )
         elif model_name == "deberta":
             detector = detector_class(

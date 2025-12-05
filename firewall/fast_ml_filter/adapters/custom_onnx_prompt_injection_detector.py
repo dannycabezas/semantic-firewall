@@ -1,15 +1,35 @@
-"""Ollama + ONNX-based prompt injection detector adapter."""
+"""Ollama + ONNX-based prompt injection detector adapter.
+
+Supports two embedding modes:
+- Local: Uses SentenceTransformers for fast local embeddings (~50-200ms)
+- Ollama: Uses Ollama API with connection pooling (~2-5s)
+"""
+
+import threading
+from typing import Any, Optional
 
 import numpy as np
 import requests
-from typing import Optional, Dict, Any
-from fast_ml_filter.ports.prompt_injection_detector_port import IPromptInjectionDetector
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from core.request_context import RequestContext
 from core.utils.decorators import log_execution_time
+from fast_ml_filter.ports.prompt_injection_detector_port import IPromptInjectionDetector
 
 
 class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
-    """Ollama + ONNX implementation for prompt injection detection using nomic-embed-text."""
+    """Ollama + ONNX implementation for prompt injection detection.
+    
+    Supports local embeddings via SentenceTransformers for improved performance.
+    Uses class-level model caching to avoid loading models multiple times.
+    """
+    
+    # Class-level shared model cache (singleton pattern)
+    _shared_local_embedding_model: Any = None
+    _shared_local_embedding_model_name: Optional[str] = None
+    _model_load_lock = threading.Lock()
+    _local_model_failed = False
 
     def __init__(
         self,
@@ -17,6 +37,8 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
         ollama_base_url: str = "http://ollama:11434",
         ollama_model: str = "nomic-embed-text:v1.5",
         threshold: float = 0.5,
+        use_local_embeddings: bool = True,
+        local_embedding_model: str = "nomic-ai/nomic-embed-text-v1.5",
     ) -> None:
         """
         Initialize Ollama + ONNX prompt injection detector.
@@ -26,6 +48,8 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
             ollama_base_url: Base URL for Ollama API
             ollama_model: Ollama embedding model to use
             threshold: Threshold for blocking (0.0 to 1.0)
+            use_local_embeddings: If True, use SentenceTransformers locally (faster)
+            local_embedding_model: Model name for local embeddings
         """
         self.model_path = model_path
         self.ollama_base_url = ollama_base_url
@@ -33,6 +57,83 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
         self.threshold = threshold
         self._onnx_model = None
         self._use_model = False
+        
+        # Local embeddings configuration
+        self._use_local_embeddings = use_local_embeddings
+        self._local_embedding_model_name = local_embedding_model
+        
+        # HTTP Session with connection pooling and retry logic
+        self._session = self._create_http_session()
+    
+    def _create_http_session(self) -> requests.Session:
+        """Create an optimized HTTP session with connection pooling and retries."""
+        session = requests.Session()
+        
+        # Configure retry strategy
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504],
+        )
+        
+        # Configure connection pool
+        adapter = HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=10,
+            max_retries=retry_strategy,
+        )
+        
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        return session
+    
+    @log_execution_time()
+    def _load_local_embedding_model(self) -> bool:
+        """Lazy load local SentenceTransformer model with class-level caching.
+        
+        Uses a lock to prevent multiple threads from loading the model simultaneously.
+        The model is shared across all instances of this class.
+        """
+        # Fast path: check if model is already loaded (no lock needed for read)
+        if (
+            CustomONNXPromptInjectionDetector._shared_local_embedding_model is not None
+            and CustomONNXPromptInjectionDetector._shared_local_embedding_model_name == self._local_embedding_model_name
+        ):
+            return True
+        
+        # Check if we already failed to load the model
+        if CustomONNXPromptInjectionDetector._local_model_failed:
+            return False
+        
+        # Slow path: acquire lock and load model
+        with CustomONNXPromptInjectionDetector._model_load_lock:
+            # Double-check after acquiring lock
+            if (
+                CustomONNXPromptInjectionDetector._shared_local_embedding_model is not None
+                and CustomONNXPromptInjectionDetector._shared_local_embedding_model_name == self._local_embedding_model_name
+            ):
+                return True
+            
+            if CustomONNXPromptInjectionDetector._local_model_failed:
+                return False
+            
+            try:
+                from sentence_transformers import SentenceTransformer
+                
+                print(f"Loading local embedding model: {self._local_embedding_model_name}")
+                CustomONNXPromptInjectionDetector._shared_local_embedding_model = SentenceTransformer(
+                    self._local_embedding_model_name,
+                    trust_remote_code=True,
+                )
+                CustomONNXPromptInjectionDetector._shared_local_embedding_model_name = self._local_embedding_model_name
+                print("✓ Local embedding model loaded successfully")
+                return True
+            except Exception as e:
+                print(f"Failed to load local embedding model: {e}. Falling back to Ollama.")
+                CustomONNXPromptInjectionDetector._local_model_failed = True
+                self._use_local_embeddings = False
+                return False
 
     @log_execution_time()
     def _load_onnx_model(self) -> None:
@@ -79,9 +180,38 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
 
 
     @log_execution_time()
+    def _get_local_embedding(self, text: str) -> Optional[np.ndarray]:
+        """
+        Get embedding using local SentenceTransformer model.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Numpy array with embedding or None if failed
+        """
+        try:
+            if not self._load_local_embedding_model():
+                return None
+            
+            # Use the shared class-level model
+            model = CustomONNXPromptInjectionDetector._shared_local_embedding_model
+            
+            # SentenceTransformers encode returns numpy array directly
+            embedding = model.encode(
+                text,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
+            return embedding.astype(np.float32)
+        except Exception as e:
+            print(f"Failed to get local embedding: {e}")
+            return None
+    
+    @log_execution_time()
     def _get_ollama_embedding(self, text: str) -> Optional[np.ndarray]:
         """
-        Get embedding from Ollama API.
+        Get embedding from Ollama API using connection pooling.
 
         Args:
             text: Text to embed
@@ -90,10 +220,12 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
             Numpy array with embedding or None if failed
         """
         try:
-            response = requests.post(
+            print(f"Getting embedding from Ollama API for the text size {len(text)}")
+            # Use session with connection pooling instead of creating new connection each time
+            response = self._session.post(
                 f"{self.ollama_base_url}/api/embeddings",
                 json={"model": self.ollama_model, "prompt": text},
-                timeout=10,
+                timeout=30,
             )
             response.raise_for_status()
             embedding = response.json()["embedding"]
@@ -101,11 +233,33 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
                 embedding = response["embeddings"][0]
             if embedding is None or len(embedding) == 0:
                 raise ValueError(f"Empty embedding from Ollama. Response: {response}")
+            print(f"Got embedding from Ollama API for the text size {len(text)}")
             return np.array(embedding, dtype=np.float32)
         except Exception as e:
             print(f"Failed to get Ollama embedding: {e}")
             return None
+    
+    @log_execution_time()
+    def _get_embedding(self, text: str) -> Optional[np.ndarray]:
+        """
+        Get embedding using the configured method (local or Ollama).
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Numpy array with embedding or None if failed
+        """
+        if self._use_local_embeddings:
+            embedding = self._get_local_embedding(text)
+            if embedding is not None:
+                return embedding
+            # Fallback to Ollama if local fails
+            print("Local embedding failed, falling back to Ollama")
+        
+        return self._get_ollama_embedding(text)
 
+    @log_execution_time()
     def _apply_softmax(self, logits: np.ndarray) -> np.ndarray:
         """Apply softmax to logits to get probabilities.
 
@@ -133,17 +287,7 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
             Prompt injection probability (0.0 to 1.0)
         """
         try:
-            # Ensure embedding has the correct shape for the model
-            # Reshape to (batch_size, embedding_dim)
-            if embedding.ndim == 1:
-                embedding = embedding[np.newaxis, :]
-
-            # Get input and output names from model
-            input_name = self._onnx_model.get_inputs()[0].name
-            output_name = self._onnx_model.get_outputs()[0].name
-
-            # Run inference
-            outputs = self._onnx_model.run([output_name], {input_name: embedding.astype(np.float32)})
+            outputs = self._run_model(embedding)
 
             # Apply softmax to get probabilities
             # probs shape: [2] (prob_benign, prob_malign)
@@ -167,13 +311,29 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
             raise
 
     @log_execution_time()
+    def _run_model(self, embedding: np.ndarray) -> np.ndarray:
+        """Run ONNX model inference and return the outputs."""
+        # Ensure embedding has the correct shape for the model
+        # Reshape to (batch_size, embedding_dim)
+        if embedding.ndim == 1:
+            embedding = embedding[np.newaxis, :]
+
+        # Get input and output names from model
+        input_name = self._onnx_model.get_inputs()[0].name
+        output_name = self._onnx_model.get_outputs()[0].name
+
+        # Run inference
+        outputs = self._onnx_model.run([output_name], {input_name: embedding.astype(np.float32)})
+        return outputs
+
+    @log_execution_time()
     def detect(self, text: str, context: RequestContext | None = None) -> float:
         """
-        Detect prompt injection in text using Ollama embeddings + ONNX model.
+        Detect prompt injection in text using embeddings + ONNX model.
 
         Pipeline:
         1. Format text with context
-        2. Send to Ollama → get embedding
+        2. Get embedding (local SentenceTransformer or Ollama)
         3. Send embedding to ONNX model
         4. Apply softmax → get probabilities
         5. Return injection score
@@ -193,10 +353,11 @@ class CustomONNXPromptInjectionDetector(IPromptInjectionDetector):
                 # Step 1: Format text with context
                 formatted_text = self._format_text_with_context(text, context)
 
-                # Step 2: Get embedding from Ollama
-                embedding = self._get_ollama_embedding(formatted_text)
-
+                # Step 2: Get embedding (local or Ollama based on configuration)
+                embedding = self._get_embedding(formatted_text)
+                
                 if embedding is not None:
+                    print(f"Embedding obtained: text_size={len(formatted_text)}, embedding_shape={embedding.shape}")
                     # Step 3-5: Run ONNX inference with softmax
                     injection_score = self._run_onnx_inference(embedding)
                     return injection_score

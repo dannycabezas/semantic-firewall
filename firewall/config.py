@@ -56,6 +56,10 @@ class MLConfig(BaseSettings):
     ollama_embedding_url: str = f"{ollama_base_url}/api/embeddings"
     prompt_injection_threshold: float = 0.5
     
+    # Local embeddings configuration (faster alternative to Ollama)
+    use_local_embeddings: bool = True  # If True, uses SentenceTransformers locally (~50-200ms vs 2-5s)
+    local_embedding_model: str = "nomic-ai/nomic-embed-text-v1.5"  # Compatible with Ollama's nomic model
+    
 
 
 class HeuristicConfig(BaseSettings):

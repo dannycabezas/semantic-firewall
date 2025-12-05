@@ -20,6 +20,11 @@ ml:
   toxicity_tokenizer: "unitary/toxic-bert"  # O path local
   toxicity_detector_type: "detoxify"  # Change to 'detoxify' or 'onnx'
   detoxify_model_name: "original"  # 'original', 'unbiased', o 'multilingual'
+  
+  # Embeddings configuration for prompt injection detection
+  # Local embeddings are ~50-200ms vs Ollama's ~2-5s
+  use_local_embeddings: true  # Set to false to use Ollama API instead
+  local_embedding_model: "nomic-ai/nomic-embed-text-v1.5"  # Compatible with Ollama's nomic model
 
 # Heuristic detector configuration
 heuristic:
