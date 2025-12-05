@@ -83,6 +83,8 @@ class FirewallContainer(containers.DeclarativeContainer):
         ollama_base_url=config.provided.ml.ollama_base_url,
         ollama_model=config.provided.ml.ollama_model,
         threshold=config.provided.ml.prompt_injection_threshold,
+        use_local_embeddings=config.provided.ml.use_local_embeddings,
+        local_embedding_model=config.provided.ml.local_embedding_model,
     )
     heuristic_detector = providers.Factory(
         RegexHeuristicDetector, rules_path=config.provided.heuristic.rules_path
